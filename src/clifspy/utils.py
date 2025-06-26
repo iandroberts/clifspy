@@ -8,12 +8,24 @@ from astropy.table import Table
 from astropy import nddata
 from astropy import units
 import numpy as np
+from photutils import aperture
 
 logger = logging.getLogger("CLIFS_Pipeline")
 
-def wave_axis_from_wcs(wcs, nwave):
+def r_mask(galaxy, r_as, wcs=None, round=False):
+    if round:
+        aper_sky = aperture.SkyEllipticalAperture(galaxy.c, r_as*units.arcsec, r_as*units.arcsec)
+    else:
+        aper_sky = aperture.SkyEllipticalAperture(galaxy.c, r_as*units.arcsec, r_as*units.arcsec*(1-galaxy.ell), theta=galaxy.pa)
+    if wcs is None:
+        aper_px = aper_sky.to_pixel(galaxy.get_eline_map("Ha-6564", return_map=False, return_wcs=True))
+    else:
+        aper_px = aper_sky.to_pixel(wcs)
+    return aper_px.to_mask(method="center")
+
+def spectral_axis_from_wcs(wcs, nwave, unit="angstrom"):
     coo = np.array([np.ones(nwave), np.ones(nwave), np.arange(nwave) + 1]).T
-    wave = wcs.all_pix2world(coo, 1)[:, 2] * wcs.wcs.cunit[2].to('angstrom')
+    wave = wcs.all_pix2world(coo, 1)[:, 2] * wcs.wcs.cunit[2].to(unit)
     return wave
 
 def match_to_galaxy(tcat, ra, dec, max_sep_arcsec=1.0):
@@ -32,20 +44,20 @@ def match_to_galaxy(tcat, ra, dec, max_sep_arcsec=1.0):
         return -99, -99, -99, -99
 
 class clifs_config_file:
-    def __init__(self, args):
-        self.args = args
+    def __init__(self, clifs_id):
+        self.clifs_id = clifs_id
         self._clifstab = Table.read("/arc/projects/CLIFS/catalogs/clifs_master_catalog.fits")
-        self.tclifs = self._clifstab[self._clifstab["clifs_id"] == self.args.clifs_id]
+        self.tclifs = self._clifstab[self._clifstab["clifs_id"] == self.clifs_id]
 
     def _populate_galaxy(self, file):
         print('[galaxy]', file=file)
         print('name = "{}"'.format(self.tclifs["name"][0]), file=file)
-        print('clifs_id = {}'.format(self.args.clifs_id), file=file)
+        print('clifs_id = {}'.format(self.clifs_id), file=file)
         print('ra = {:.6e}'.format(self.tclifs["ra"][0]), file=file)
         print('dec = {:.5e}'.format(self.tclifs["decl"][0]), file=file)
         print('z = {:.5f}'.format(self.tclifs["redshift"][0]), file=file)
         tnsa = Table.read("/arc/projects/CLIFS/catalogs/nsa_v1_0_1_shrunk.fits")
-        pa, ellip, r50, r90 = match_to_galaxy(tnsa, self.tclifs["ra"], self.tclifs["dec"])
+        pa, ellip, r50, r90 = match_to_galaxy(tnsa, self.tclifs["ra"], self.tclifs["decl"])
         print('ell = {:.3f}'.format(ellip), file=file)
         print('reff = {:.3e}'.format(r50), file=file)
         print('pa = {:.3e}'.format(pa), file=file)
@@ -74,15 +86,15 @@ class clifs_config_file:
 
     def _populate_cube(self, file):
         print('[cube]', file=file)
-        print('xmin = {}'.format(self.args.xmin), file=file)
-        print('xmax = {}'.format(self.args.xmax), file=file)
-        print('ymin = {}'.format(self.args.ymin), file=file)
-        print('ymax = {}'.format(self.args.ymax), file=file)
+        print('xmin = -99', file=file)
+        print('xmax = -99', file=file)
+        print('ymin = -99', file=file)
+        print('ymax = -99', file=file)
         print("", file=file)
 
     def _populate_files(self, file):
         print('[files]', file=file)
-        paths = glob.glob("/arc/projects/CLIFS/cubes/clifs/clifs{}/weave/stackcube_???????.fit".format(self.args.clifs_id))
+        paths = glob.glob("/arc/projects/CLIFS/cubes/clifs/clifs{}/weave/stackcube_???????.fit".format(self.clifs_id))
         if len(paths) == 2:
             numbers = [re.findall(r"\d+", paths[0]), re.findall(r"\d+", paths[1])]
             if int(numbers[0][1]) > int(numbers[1][1]):
@@ -92,37 +104,37 @@ class clifs_config_file:
                 print('cube_blue = "{}"'.format(paths[1]), file=file)
                 print('cube_red = "{}"'.format(paths[0]), file=file)
             if self.tclifs["weave_obs"][0] == 1:
-                print('cube_sci = "/arc/projects/CLIFS/cubes/clifs/clifs{}/weave/calibrated_cube.fits"'.format(self.args.clifs_id), file=file)
+                print('cube_sci = "/arc/projects/CLIFS/cubes/clifs/clifs{}/weave/calibrated_cube.fits"'.format(self.clifs_id), file=file)
             elif self.tclifs["manga_obs"][0] == 1:
-                file_list = glob.glob("/arc/projects/CLIFS/cubes/clifs/clifs{}/manga/*LOGCUBE.fits.gz".format(self.args.clifs_id))
+                file_list = glob.glob("/arc/projects/CLIFS/cubes/clifs/clifs{}/manga/*LOGCUBE.fits.gz".format(self.clifs_id))
                 print('cube_sci = "{}"'.format(file_list[0]), file=file)
-            print('outdir = "/arc/projects/CLIFS/cubes/clifs/clifs{}/weave"'.format(self.args.clifs_id), file=file)
-            print('outdir_dap = "/arc/projects/CLIFS/dap_output/clifs/clifs{}"'.format(self.args.clifs_id), file=file)
+            print('outdir = "/arc/projects/CLIFS/cubes/clifs/clifs{}/weave"'.format(self.clifs_id), file=file)
+            print('outdir_dap = "/arc/projects/CLIFS/dap_output/clifs/clifs{}"'.format(self.clifs_id), file=file)
         elif len(paths) == 0:
             logger.info("No 'stackcube' files found")
-            print('outdir = "/arc/projects/CLIFS/cubes/clifs/clifs{}/weave"'.format(self.args.clifs_id), file=file)
-            print('outdir_dap = "/arc/projects/CLIFS/dap_output/clifs/clifs{}"'.format(self.args.clifs_id), file=file)
+            print('outdir = "/arc/projects/CLIFS/cubes/clifs/clifs{}/weave"'.format(self.clifs_id), file=file)
+            print('outdir_dap = "/arc/projects/CLIFS/dap_output/clifs/clifs{}"'.format(self.clifs_id), file=file)
             if self.tclifs["manga_obs"][0] == 1:
-                file_list = glob.glob("/arc/projects/CLIFS/cubes/clifs/clifs{}/manga/*LOGCUBE.fits.gz".format(self.args.clifs_id))
+                file_list = glob.glob("/arc/projects/CLIFS/cubes/clifs/clifs{}/manga/*LOGCUBE.fits.gz".format(self.clifs_id))
                 print('cube_sci = "{}"'.format(file_list[0]), file=file)
         else:
             raise Exception("Strange number of matches from file search")
-        print('outdir_products = "/arc/projects/CLIFS/derived_products/clifs/clifs{}"'.format(self.args.clifs_id), file=file)
+        print('outdir_products = "/arc/projects/CLIFS/derived_products/clifs/clifs{}"'.format(self.clifs_id), file=file)
         print("", file=file)
 
     def _populate_pipeline(self, file):
         print('[pipeline]', file=file)
-        print('bkgsub = {}'.format(self.args.bkgsub), file=file)
-        print('bkgsub_galmask = {}'.format(self.args.bkgsub_galmask), file=file)
-        print('downsample_spatial = {}'.format(self.args.downsample_spatial), file=file)
-        print('alpha = {}'.format(self.args.alpha), file=file)
-        print('factor_spatial = {}'.format(self.args.factor_spatial), file=file)
-        print('downsample_wav = {}'.format(self.args.downsample_wav), file=file)
-        print('fill_ccd_gaps = {}'.format(self.args.fill_ccd_gaps), file=file)
-        print('fix_astrometry = {}'.format(self.args.fix_astrometry), file=file)
-        print('hdf5 = {}'.format(self.args.hdf5), file=file)
-        print('verbose = {}'.format(self.args.verbose), file=file)
-        print('clobber = {}'.format(self.args.clobber), file=file)
+        print('bkgsub = true', file=file)
+        print('bkgsub_galmask = true', file=file)
+        print('downsample_spatial = true', file=file)
+        print('alpha = 1.28', file=file)
+        print('factor_spatial = 2', file=file)
+        print('downsample_wav = true', file=file)
+        print('fill_ccd_gaps = false', file=file)
+        print('fix_astrometry = false', file=file)
+        print('hdf5 = true', file=file)
+        print('verbose = false', file=file)
+        print('clobber = true', file=file)
         print("", file=file)
 
     def _populate_plotting(self, file):
@@ -150,7 +162,7 @@ class clifs_config_file:
         print('specfit.inset_ylim = [1.3, 4.0]', file=file)
 
     def make(self):
-        outfile = open(f"/arc/projects/CLIFS/config_files/clifs_{self.args.clifs_id}.toml", "w")
+        outfile = open(f"/arc/projects/CLIFS/config_files/clifs_{self.clifs_id}.toml", "w")
         self._populate_galaxy(outfile)
         self._populate_data_coverage(outfile)
         self._populate_cube(outfile)

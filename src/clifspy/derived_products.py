@@ -6,19 +6,51 @@ import numpy as np
 from astropy.cosmology import FlatLambdaCDM
 import astropy.units as u
 from pathlib import Path
+from photutils import aperture
 
 def colour_excess(wav):
     return (-4.61777 + 1.41612 * np.power(wav.to(u.micron).value, -1) + 1.52077 * np.power(wav.to(u.micron).value, -2) -
     0.63269 * np.power(wav.to(u.micron).value, -3) + 0.07386 * np.power(wav.to(u.micron).value, -4))
 
-def dered_ha_flux(galaxy):
-    ha_flux = galaxy.get_eline_map("Ha-6564")
+def bpt_sf_mask(hb, oiii, ha, nii, divide="kauffmann03"):
+    if divide == "kauffmann03":
+        dividing_line = 0.61 / (np.log10(nii/ha) - 0.05) + 1.3
+    elif divide == "kewley01":
+        dividing_line = 0.61 / (np.log10(nii/ha) - 0.47) + 1.19
+    else:
+        raise ValueError("Invalid BPT classification")
+    return np.less_equal(np.log10(oiii/hb), dividing_line)
+
+def dered_ha_flux(galaxy, return_fha=False):
+    ha_flux, wcs = galaxy.get_eline_map("Ha-6564", return_wcs=True)
     ha_snr = ha_flux * np.sqrt(galaxy.get_eline_map("Ha-6564", map = "GFLUX_IVAR"))
     hb_flux = galaxy.get_eline_map("Hb-4862")
-    hb_snr = ha_flux * np.sqrt(galaxy.get_eline_map("Hb-4862", map = "GFLUX_IVAR"))
-    mask_good = np.greater_equal(ha_snr, 3) & np.greater_equal(hb_snr, 3)
-    hb_flux[~mask_good] = np.nan
-    ha_flux[~mask_good] = np.nan
+    hb_snr = hb_flux * np.sqrt(galaxy.get_eline_map("Hb-4862", map = "GFLUX_IVAR"))
+    oiii_flux = galaxy.get_eline_map("OIII-5008")
+    oiii_snr = oiii_flux * np.sqrt(galaxy.get_eline_map("OIII-5008", map = "GFLUX_IVAR"))
+    nii_flux = galaxy.get_eline_map("NII-6585")
+    nii_snr = nii_flux * np.sqrt(galaxy.get_eline_map("NII-6585", map = "GFLUX_IVAR"))
+    mask_sn = np.greater_equal(ha_snr, 3) & np.greater_equal(hb_snr, 3) & np.greater_equal(oiii_snr, 3) & np.greater_equal(nii_snr, 3)
+    hb_flux[~mask_sn] = np.nan
+    ha_flux[~mask_sn] = np.nan
+    oiii_flux[~mask_sn] = np.nan
+    nii_flux[~mask_sn] = np.nan
+    mask_sf = bpt_sf_mask(hb_flux, oiii_flux, ha_flux, nii_flux, divide="kewley01")
+    if return_fha:
+        if galaxy.reff.value == -99:
+            return -99.0
+        aper_sky = aperture.SkyEllipticalAperture(galaxy.c, 1.5*galaxy.reff, 1.5*galaxy.reff*(1-galaxy.ell), theta=galaxy.pa)
+        aper_px = aper_sky.to_pixel(wcs)
+        aper_mask = aper_px.to_mask()
+        ha_masked = aper_mask.multiply(ha_flux)
+        ha_tot = np.nansum(ha_flux)
+    ha_flux[~mask_sf] = np.nan
+    if return_fha:
+        ha_masked = aper_mask.multiply(ha_flux)
+        fha = np.nansum(ha_masked) / ha_tot
+        if np.isnan(fha):
+            return -1.0
+        return fha
     decr = ha_flux / hb_flux
     return 1e-17 * ha_flux * np.power(decr / 2.85, 0.76 * (colour_excess(656.46 * u.nm) + 4.5)) * (u.erg / u.s / u.cm ** 2)
 
@@ -77,7 +109,7 @@ def run_bagpipes(galaxy, x, y):
     dust["Av"] = (0., 3.0)
 
     fit_instructions = {}
-    fit_instructions["redshift"] = (galaxy.z - 0.001, galaxy.z + 0.001)
+    fit_instructions["redshift"] = (galaxy.z - 500/3e+5, galaxy.z + 500/3e+5)
     fit_instructions["t_bc"] = 0.01
     fit_instructions["continuity"] = continuity
     #fit_instructions["nebular"] = nebular
@@ -102,5 +134,4 @@ def run_bagpipes(galaxy, x, y):
 def products_for_clifspipe(galaxy):
     sig_sfr = make_sfr_map(galaxy)
     write_sfr_map(galaxy, sig_sfr)
-    print(galaxy.get_ifu_total_sfr())
     #run_bagpipes(galaxy, 66, 40)

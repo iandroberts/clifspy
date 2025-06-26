@@ -1,6 +1,5 @@
 import glob
 from astropy.coordinates import SkyCoord
-from astropy import constants
 from clifspy.galaxy import Galaxy
 import numpy as np
 from astropy.io import fits
@@ -142,39 +141,14 @@ def make_multiwav_cutouts(galaxy):
             logger.info("Making {}: {}".format(telescope, filter))
             cutout_from_image(galaxy, telescope, filter)
 
-def bin_aca_spec(vel, flux):
-    vel_bin = np.zeros(vel.size // 8)
-    flux_bin = np.zeros(vel.size // 8)
-    for i in range(0, vel.size//8):
-        vel_bin[i] = np.mean(vel[8*i:8*(i+1)])
-        flux_bin[i] = np.sum(flux[8*i:8*(i+1)])
-    return vel_bin, flux_bin
-
-def stack_aca_spectra(galaxy, r_as, round=False, brightness_temp=False):
+def stack_aca_spectra(galaxy, Nre=1):
     cubefile = glob.glob(f"/arc/projects/CLIFS/multiwav/alma/clifs{galaxy.clifs_id}/7m/*.fits")
     hdul = fits.open(cubefile[0])
-    hdr = hdul[0].header
-    wcs = WCS(hdr)
-    wcs = wcs.sub(["spectral", "celestial"])
-    data = hdul[0].data
-    data = data[0, :, :, :]
-    nwave = data.shape[0]
-    coo = np.array([np.arange(nwave), np.ones(nwave), np.ones(nwave) + 1]).T
-    freq = wcs.all_pix2world(coo, 1)[:, 0] * wcs.wcs.cunit[0].to("hertz")
-    vCO_21 = 230.538
-    vel = 2.998e+5 * ((hdr["RESTFRQ"] - freq) / hdr["RESTFRQ"])
-    mask_r = utils.r_mask(galaxy, r_as, wcs=wcs.celestial, round=round)
-    mask_img = mask_r.to_image(data.shape[1:])
-    spec = np.nansum(data * mask_img, axis=(1, 2))
-    Abm = (2*np.pi*hdr["BMAJ"]*hdr["BMIN"]*gaussian_fwhm_to_sigma**2) * u.deg**2
-    Apx = (hdr["CDELT2"] ** 2) * u.deg**2
-    px_per_bm = Abm.value / Apx.value
-    spec = spec * 1e3 / px_per_bm
-    if np.abs(np.diff(vel)[0]) < 10:
-        vel, spec = bin_aca_spec(vel, spec)
-    if brightness_temp:
-        Iv = (spec * u.mJy) / (mask_img.sum() * Apx.to(u.sr).value)
-        v = 230.538 * u.GHz
-        Tb = (Iv * constants.c**2) / (2 * v**2 * constants.k_B)
-        return vel, Tb.to(u.mK).value
-    return vel, spec
+
+
+
+if __name__ == "__main__":
+    from clifspy import galaxy
+
+    gal = galaxy.Galaxy(247)
+    stack_aca_spectra(gal)
