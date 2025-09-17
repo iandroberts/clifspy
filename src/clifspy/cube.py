@@ -28,11 +28,11 @@ def _do_nothing():
     pass
 
 def _ivar_sum(arr, axis):
-    N = 2
-    alpha = 1.28
+    N = 4
+    alpha = 1.7
     noise_correction = 1.0 + alpha * np.log10(N)
     var = 1 / arr
-    new_var = noise_correction * np.nansum(var, axis = axis)
+    new_var = noise_correction * np.nansum(var, axis=axis)
     return 1 / new_var
 
 def _standard_err_mean(arr, axis):
@@ -94,7 +94,7 @@ def preprocess_cube(galaxy, fname, hdul, arm, ext_data=1, ext_ivar=2, ext_fluxca
     cal_ivar = hdul[ext_ivar].data * (1 / hdul[ext_fluxcal].data[:, None, None] ** 2)
     wcs = WCS(hdul[ext_data].header)
     cdelt = hdul[ext_data].header["CD2_2"]
-    wave_orig = utils.wave_axis_from_wcs(wcs, cal_data.shape[0])
+    wave_orig = utils.spectral_axis_from_wcs(wcs, cal_data.shape[0])
     cal_data, cal_ivar = fibre_to_pixel_flux_conversion(cal_data, cal_ivar, cdelt)
     if galaxy.config["cube"]["xmin"] == -99:
         fullfield = True
@@ -102,8 +102,10 @@ def preprocess_cube(galaxy, fname, hdul, arm, ext_data=1, ext_ivar=2, ext_fluxca
         fullfield = False
     else:
         raise ValueError("xmin should either = -99 or be >= 0")
-    if galaxy.config["pipeline"]["bkgsub"]: cal_data = bkg_sub(galaxy, cal_data, wave_orig, wcs)
-    if not fullfield: cal_data, cal_ivar = crop_cube(galaxy, cal_data, cal_ivar)
+    if galaxy.config["pipeline"]["bkgsub"]:
+        cal_data = bkg_sub(galaxy, cal_data, wave_orig, wcs)
+    if not fullfield:
+        cal_data, cal_ivar = crop_cube(galaxy, cal_data, cal_ivar)
     if galaxy.config["pipeline"]["downsample_wav"]:
         wave, cal_data = downsample_wav_axis(wave_orig, cal_data, "flux", return_wave = True)
         cal_ivar = downsample_wav_axis(wave_orig, cal_ivar, "ivar")
@@ -153,7 +155,7 @@ def bkg_sub(galaxy, data, wave, wcs):
     data = data - bkg_cube
     return data
 
-def downsample_wav_axis(wave, data, method, return_wave=False):
+def downsample_wav_axis(wave, data, method, return_wave=False, cov=0):
     new_data = np.zeros((data.shape[0] // 2, data.shape[1], data.shape[2]))
     new_wave = np.zeros(new_data.shape[0])
     k = 0
@@ -161,7 +163,7 @@ def downsample_wav_axis(wave, data, method, return_wave=False):
         if method == "flux":
             new_data[i, :, :] = 0.5 * (data[k, :, :] + data[k + 1, :, :])
         elif method == "ivar":
-            var = 0.5 * (1 / data[k, :, :] + 1 / data[k + 1, :, :])
+            var = (1/4) * (1/data[k, :, :] + 1/data[k + 1, :, :] + 2*cov)
             new_data[i, :, :] = 1 / var
         else:
             raise ValueError("Invalid method keyword provided to 'downsample_wav_axis'")
@@ -184,7 +186,7 @@ def downsample_cube_spatial(cube, axes, cube_type, factor=2):
 def reproject_spectral_axis(cube, l_low, l_high, dl, fill_value=0):
     dl_ang = dl.to(units.AA).value
     new_spectral_axis = np.arange(l_low.to(units.AA).value, l_high.to(units.AA).value + dl_ang / 2, dl_ang) * units.AA
-    cube_newspec = cube.spectral_interpolate(new_spectral_axis, fill_value = fill_value, update_function = _do_nothing)
+    cube_newspec = cube.spectral_interpolate(new_spectral_axis, fill_value = fill_value, update_function=None)
     return cube_newspec
 
 def stitch_cubes(cube_blue, cube_red, ivar_blue, ivar_red):
@@ -226,8 +228,9 @@ def write_fullcube(galaxy, fname_out, fname_blue, fname_red, config, cube_full, 
         logger.info("Converted cube to HDF5")
 
 def generate_cube(galaxy, fullfield=False):
-    if galaxy.config["pipeline"]["downsample_spatial"] and ((galaxy.config["pipeline"]["alpha"] is None) | (galaxy.config["pipeline"]["factor_spatial"] is None)):
-        raise ValueError("If 'downsample_spatial = True', 'alpha', 'factor' cannot be None")
+    if galaxy.config["pipeline"]["downsample_spatial"] and (galaxy.config["pipeline"]["factor_spatial"] is None):
+        raise ValueError("If 'downsample_spatial = True', 'factor' cannot be None")
+    outdir = galaxy.config["files"]["outdir"]
     fname_blue = galaxy.config["files"]["cube_blue"]
     fname_red = galaxy.config["files"]["cube_red"]
     hdul_blue = fits.open(fname_blue)
@@ -248,14 +251,19 @@ def generate_cube(galaxy, fullfield=False):
         ivar_blue = downsample_cube_spatial(ivar_blue, [1, 2], "ivar", factor = galaxy.config["pipeline"]["factor_spatial"])
         ivar_red = downsample_cube_spatial(ivar_red, [1, 2], "ivar", factor = galaxy.config["pipeline"]["factor_spatial"])
         logger.info("Done spatial binning")
-    cube_blue = reproject_spectral_axis(cube_blue, 3700 * units.AA, 9000 * units.AA, cube_blue.header["CDELT3"] * units.m)
-    cube_red = reproject_spectral_axis(cube_red, 3700 * units.AA, 9000 * units.AA, cube_blue.header["CDELT3"] * units.m)
-    ivar_blue = reproject_spectral_axis(ivar_blue, 3700 * units.AA, 9000 * units.AA, cube_blue.header["CDELT3"] * units.m)
-    ivar_red = reproject_spectral_axis(ivar_red, 3700 * units.AA, 9000 * units.AA, cube_blue.header["CDELT3"] * units.m)
+    wavblue = cube_blue.spectral_axis.to(units.AA).value
+    min = np.abs(wavblue - 3700).argmin()
+    wavred = cube_red.spectral_axis.to(units.AA).value
+    max = np.abs(wavred - 9400).argmin()
+    minlam = wavblue[min]
+    maxlam = wavred[max]
+    cube_blue = reproject_spectral_axis(cube_blue, minlam*units.AA, maxlam*units.AA, cube_blue.header["CDELT3"]*units.m)
+    cube_red = reproject_spectral_axis(cube_red, minlam*units.AA, maxlam*units.AA, cube_blue.header["CDELT3"]*units.m)
+    ivar_blue = reproject_spectral_axis(ivar_blue, minlam*units.AA, maxlam*units.AA, cube_blue.header["CDELT3"]*units.m)
+    ivar_red = reproject_spectral_axis(ivar_red, minlam*units.AA, maxlam*units.AA, cube_blue.header["CDELT3"]*units.m)
     logger.info("Reprojected red and blue cubes onto common spectral axis")
     cube_full, ivar_full = stitch_cubes(cube_blue, cube_red, ivar_blue, ivar_red)
     logger.info("Combined red and blue cubes")
-    outdir = galaxy.config["files"]["outdir"]
     if galaxy.config["pipeline"]["downsample_spatial"]:
         if fullfield:
             outfile = outdir + "/calibrated_cube_full.fits"

@@ -1,6 +1,6 @@
 import  os
 from astropy.stats import sigma_clipped_stats
-from photutils.aperture import SkyEllipticalAperture, EllipticalAperture
+from photutils.aperture import SkyEllipticalAperture
 from astropy.coordinates import SkyCoord
 from matplotlib.patches import Circle, RegularPolygon
 from matplotlib.collections import PatchCollection
@@ -61,20 +61,6 @@ class panel_image:
         dec_offset.set_ticklabel_position("l")
         if grid:
             overlay.grid(color = "k", alpha = 0.1, lw = 0.5)
-
-    def _get_rmask(self):
-        x0, y0 = WCS(self.maps[1].header).celestial.world_to_pixel(self.galaxy.c)
-        cd = self.maps[1].header["PC2_2"]
-        imshape = self.maps[1].data.shape[1:]
-        #yy, xx = np.mgrid[:imshape[0], :imshape[1]]
-        r90_px = self.galaxy.config["galaxy"]["r90"] / 3600 / cd
-        ba = 1 - self.galaxy.config["galaxy"]["ell"]
-        th = np.radians(self.galaxy.config["galaxy"]["pa"] - 90)
-        #r = np.sqrt((x0 - xx)**2 + (y0 - yy)**2)
-        aper = EllipticalAperture((x0, y0), r90_px, ba*r90_px, theta=th)
-        apermask = aper.to_mask(method="center")
-        mask_im = apermask.to_image(imshape).astype(bool)
-        return ~mask_im
 
     def optical(self, gax, rgb = False, xlim = None, ylim = None):
         img, img_h = self.galaxy.get_cutout_image("cfht", "G", header = True)
@@ -138,7 +124,6 @@ class panel_image:
         vel = self.maps["STELLAR_VEL"].data
         vel[self.maps["BINID"].data[0] == -1] = np.nan
         vel[self.maps["BIN_SNR"].data < 8] = np.nan
-        #vel[self._get_rmask()] = np.nan
         if mask is not None:
             vel[~mask] = np.nan
         ax = self.fig.add_subplot(gax, projection = WCS(self.maps[1].header, naxis = 2))
@@ -160,11 +145,10 @@ class panel_image:
         self._offset_axis(ax, labels = False, grid = True)
         ax.set_facecolor("#dddddd")
 
-    def vdisp_star(self, gax, mask=None, xlim=None, ylim=None, xticks=False, yticks=False):
+    def vdisp_star(self, gax, mask = None, xlim = None, ylim = None, xticks = False, yticks = False):
         vel = self.maps["STELLAR_SIGMA"].data
         vel[self.maps["BINID"].data[0] == -1] = np.nan
         vel[self.maps["BIN_SNR"].data < 8] = np.nan
-        #vel[self._get_rmask()] = np.nan
         if mask is not None:
             vel[~mask] = np.nan
         ax = self.fig.add_subplot(gax, projection = WCS(self.maps[1].header, naxis = 2))
@@ -298,7 +282,7 @@ class panel_image:
         for i in range(len(self.panels)):
             r = i // 3
             c = (i % 3) + 2
-            getattr(self, self.panels[i])(self.axis_grid[r, c], xlim=xlim, ylim=ylim)
+            getattr(self, self.panels[i])(self.axis_grid[r, c], xlim = xlim, ylim = ylim)
         self.fig.savefig(filepath + ".png", bbox_inches = "tight", pad_inches = 0.03)
         self.fig.savefig(filepath + ".pdf", bbox_inches = "tight", pad_inches = 0.03)
 
@@ -348,7 +332,7 @@ def specfit(galaxy):
     ax.axvspan(lgap_red[0], lgap_red[1], color = "k", lw = 0, alpha = 0.2)
     ax.plot(wave, spec, color = "k", lw = 1.0, drawstyle = "steps")
     ax.plot(wave_model, model_spec, color = "C0", lw = 0.8, drawstyle = "steps")
-    ax.set_xlim(3725, 9400)
+    ax.set_xlim(3725, 9300)
     ax.text(0.015, 0.97, r"CLIFS {}:$\;\;$({}, {})".format(galaxy.clifs_id, x, y), fontsize = 9,
                ha = "left", va = "top", transform = ax.transAxes)
 
@@ -366,8 +350,6 @@ def specfit(galaxy):
         axin = ax.inset_axes([0.25, 0.55, 0.6, 0.4],
             xlim = (3732 * (1 + zgal) * (1 + vel / c), 4000 * (1 + zgal) * (1 + vel / c)),
             ylim = galaxy.config["plotting"]["specfit"]["inset_ylim"], yticklabels = [])
-        axin.fill_between(wave[mask], spec[mask] - spec_err[mask], spec[mask] + spec_err[mask],
-            color="k", lw=0, alpha=0.25, step="pre")
         axin.plot(wave[mask], spec[mask], color = "k", lw = 1.0, drawstyle = "steps")
         axin.plot(wave_model[mask_model], model_spec[mask_model], color = "C0", lw = 0.8, drawstyle = "steps")
         axin.set_yticks([])

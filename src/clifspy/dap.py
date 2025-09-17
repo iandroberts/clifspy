@@ -49,7 +49,7 @@ class WEAVEDataCube(DataCube):
         # Resample to a geometric sampling
         # - Get the wavelength vector
         spatial_shape = flux.shape[1:][::-1]
-        wave = clifspy.utils.wave_axis_from_wcs(wcs, flux.shape[0]) * units.AA
+        wave = clifspy.utils.spectral_axis_from_wcs(wcs, flux.shape[0]) * units.AA
         # - Convert wavelengths to vacuum
         wlum = wave.to(units.um).value
         wave = ((1+1e-6*(287.6155+1.62887/wlum**2+0.01360/wlum**4)) * wave).to(units.AA).value
@@ -82,15 +82,16 @@ class WEAVEDataCube(DataCube):
         head_new["CRPIX3"] = (1.0, "Pixel coordinate of reference point")
         wcs_new = WCS(head_new)
         ivar = r.oute.reshape(*spatial_shape, -1)
+        flux = r.outy.reshape(*spatial_shape, -1)
         mask = r.outf.reshape(*spatial_shape, -1) < 0.8
-        ivar[mask] = 0.0
+        mask = mask | (~np.isfinite(ivar)) | (~np.isfinite(flux))
         gpm = np.logical_not(mask)
         ivar[gpm] = 1 / ivar[gpm]**2
-        ivar[~np.isfinite(ivar)] = 0.0
-        _sres = np.full(ivar.shape, sres, dtype=float)
-        flux = r.outy.reshape(*spatial_shape, -1)
+        ivar[mask] = 0.0
         flux[mask] = 0.0
-        flux[~np.isfinite(flux)] = 0.0
+        #ivar[(~np.isfinite(ivar))] = 0.0
+        _sres = np.full(ivar.shape, sres, dtype=float)
+        #flux[~np.isfinite(flux)] = 0.0
         # Default name assumes file names like, e.g., '*_icubew.fits'
         super().__init__(flux, ivar=ivar, mask=mask, sres=_sres,
                          wave=r.outx, meta=meta, prihdr=head_new, wcs=wcs_new,

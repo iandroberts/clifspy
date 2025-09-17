@@ -40,11 +40,12 @@ class Galaxy:
         if self.manga:
             self.plateifu = clifs_cat[clifs_cat["clifs_id"] == self.clifs_id]["plateifu"][0]
             self.manga_Nfib = int(manga_cat[manga_cat["plateifu"] == self.plateifu]["ifudesignsize"])
+
     def get_cutout_image(self, telescope, filter, header = False):
         img_path = "/arc/projects/CLIFS/multiwav/cutouts/clifs{}/{}-{}.fits".format(self.clifs_id, telescope, filter)
         return fits.getdata(img_path, header = header)
 
-    def get_maps(self):
+    def get_maps(self, force_manga=False):
         dap_dir = self.config["files"]["outdir_dap"]
         find_maps = glob.glob(dap_dir + "/*-MAPS-HYB10-MILESHC-MASTARSSP.fits*")
         if len(find_maps) == 0:
@@ -52,17 +53,25 @@ class Galaxy:
         if len(find_maps) == 1:
             mapsfile = fits.open(find_maps[0])
         elif len(find_maps) == 2:
-            print("Found two MAPS files, assuming WEAVE and MaNGA, proceeding with WEAVE")
-            mapsfile = fits.open([s for s in find_maps if "weave" in s][0])
+            if force_manga:
+                print("Found two MAPS files, assuming WEAVE and MaNGA, proceeding with MaNGA")
+                mapsfile = fits.open([s for s in find_maps if "manga" in s][0])
+            else:
+                print("Found two MAPS files, assuming WEAVE and MaNGA, proceeding with WEAVE")
+                mapsfile = fits.open([s for s in find_maps if "weave" in s][0])
         else:
             print("Found more than two MAPS files")
             sys.exit()
         return mapsfile
 
-    def get_cube(self, return_ivar=False):
+    def get_cube(self, return_ivar=False, return_hdr=False):
         hdul = fits.open(self.config["files"]["cube_sci"])
-        if return_ivar:
+        if return_ivar and return_hdr:
+            return hdul["FLUX"].data, hdul["IVAR"].data, hdul["FLUX"].header
+        elif return_ivar:
             return hdul["FLUX"].data, hdul["IVAR"].data
+        elif return_hdr:
+            return hdul["FLUX"].data, hdul["FLUX"].header
         return hdul["FLUX"].data
 
     def get_modelcube(self):
@@ -79,10 +88,12 @@ class Galaxy:
             sys.exit()
         return cubefile
 
-    def get_eline_map(self, line, map = "GFLUX", return_map = True, return_wcs = False):
-        mapsfile = self.get_maps()
+    def get_eline_map(self, line, map = "GFLUX", return_map=True, return_wcs=False,
+            force_manga=False):
+        mapsfile = self.get_maps(force_manga=force_manga)
         if return_wcs and return_map:
-            return mapsfile["EMLINE_{}".format(map)].data[eline_lookup(line)], WCS(mapsfile["EMLINE_GFLUX"].header).celestial
+            return (mapsfile["EMLINE_{}".format(map)].data[eline_lookup(line)],
+                WCS(mapsfile["EMLINE_GFLUX"].header).celestial)
         elif return_map:
             return mapsfile["EMLINE_{}".format(map)].data[eline_lookup(line)]
         else:
