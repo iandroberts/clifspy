@@ -36,7 +36,7 @@ def setup_logger(gal_id):
 def run_clifs_pipeline(args, logger):
     if not os.path.isfile("/arc/projects/CLIFS/config_files/clifs_{}.toml".format(args.clifs_id)):
         logger.info("Galaxy config file does not exist, generating it now")
-        utils.clifs_config_file(args).make()
+        utils.clifs_config_file(args.clifs_id).make()
     this_galaxy = galaxy.Galaxy(args.clifs_id)
 
     if args.process_cube:

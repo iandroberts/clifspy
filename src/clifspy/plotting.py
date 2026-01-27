@@ -8,6 +8,7 @@ from reproject import reproject_exact, reproject_interp
 from astropy.io import fits
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.transforms as transforms
 from clifspy.galaxy import Galaxy
 from astropy.wcs import WCS
 import matplotlib.gridspec as gs
@@ -304,6 +305,9 @@ class panel_image:
 
 def specfit(galaxy):
     eline_labels = galaxy.config["plotting"]["specfit"]["eline_labels"]
+    absline_labels = galaxy.config["plotting"]["specfit"]["absline_labels"]
+    if not eline_labels ^ absline_labels:
+        raise ValueError("One of 'eline' or 'abs' labels must be true (but not both)")
     zgal = galaxy.z
     c = 2.998e+5
     data_cube = fits.open(galaxy.config["files"]["cube_sci"])
@@ -355,8 +359,12 @@ def specfit(galaxy):
     ## OII, Hdelta, Hgamma ##
     ax = fig.add_subplot(grid[1, 0])
     #Including an inset axis in order to zoom-in on the OII doublet
-    mask = np.greater(wave, 3701 * (1 + zgal) * (1 + vel / c)) & np.less(wave, 4020 * (1 + zgal) * (1 + vel / c))
-    mask_model = np.greater(wave_model, 3701 * (1 + zgal) * (1 + vel / c)) & np.less(wave_model, 4020 * (1 + zgal) * (1 + vel / c))
+    if eline_labels:
+        mask = np.greater(wave, 3701 * (1 + zgal) * (1 + vel / c)) & np.less(wave, 4020 * (1 + zgal) * (1 + vel / c))
+        mask_model = np.greater(wave_model, 3701 * (1 + zgal) * (1 + vel / c)) & np.less(wave_model, 4020 * (1 + zgal) * (1 + vel / c))
+    else:
+        mask = np.greater(wave, 3850 * (1 + zgal) * (1 + vel / c)) & np.less(wave, 4350 * (1 + zgal) * (1 + vel / c))
+        mask_model = np.greater(wave_model, 3850 * (1 + zgal) * (1 + vel / c)) & np.less(wave_model, 4350 * (1 + zgal) * (1 + vel / c))
     ax.fill_between(wave[mask], spec[mask] - spec_err[mask], spec[mask] + spec_err[mask],
         color="k", lw=0, alpha=0.25, step="pre")
     ax.plot(wave[mask], spec[mask], color = "k", lw = 1.0, drawstyle = "steps")
@@ -374,11 +382,21 @@ def specfit(galaxy):
         axin.tick_params(labelsize = 8)
     ymin = ax.get_ylim()[0]
     ymax = ax.get_ylim()[1]
+    trans = transforms.blended_transform_factory(ax.transData, ax.transAxes)
+    ax.set_ylim(ymin, 1.25 * ymax)
     # Adjust the ylim in order to fit in the line labels, probably far from the best way to do this...
     if eline_labels:
-        ax.text(3728 * (1 + zgal) * (1 + vel / c), 1.09 * ymax, r"$\textsc{Oii}$", fontsize = 8, ha = "center", va = "bottom")
-        ax.vlines([3727 * (1 + zgal) * (1 + vel / c), 3729 * (1 + zgal) * (1 + vel / c)], 1.0 * ymax, 1.08 * ymax, color = "k", lw = 0.75)
-        ax.set_ylim(ymin, 1.2 * ymax)
+        ax.text(3728 * (1 + zgal) * (1 + vel / c), 0.88, r"$\textsc{Oii}$",
+            fontsize=8, ha="center", va="bottom", transform=trans)
+        ax.vlines([3727 * (1 + zgal) * (1 + vel / c), 3729 * (1 + zgal) * (1 + vel / c)],
+            0.77, 0.85, color = "k", lw = 0.75, transform=trans)
+    else:
+        ax.text(3934.8 * (1 + zgal) * (1 + vel / c), 0.88, r"K", fontsize = 8, ha = "center", va = "bottom", transform=trans)
+        ax.vlines(3934.8 * (1 + zgal) * (1 + vel / c), 0.77, 0.85, color = "k", lw = 0.75, transform=trans)
+        ax.text(3969.6 * (1 + zgal) * (1 + vel / c), 0.88, r"H", fontsize = 8, ha = "center", va = "bottom", transform=trans)
+        ax.vlines(3969.6 * (1 + zgal) * (1 + vel / c), 0.77, 0.85, color = "k", lw = 0.75, transform=trans)
+        ax.text(4305.6 * (1 + zgal) * (1 + vel / c), 0.88, r"G", fontsize = 8, ha = "center", va = "bottom", transform=trans)
+        ax.vlines(4305.6 * (1 + zgal) * (1 + vel / c), 0.77, 0.85, color = "k", lw = 0.75, transform=trans)
 
     ## Hgamma, Hdelta ##
     #ax = fig.add_subplot(grid[1, 1])
@@ -408,24 +426,29 @@ def specfit(galaxy):
     ax.set_xlim(wave[mask].min(), wave[mask].max())
     ymin = ax.get_ylim()[0]
     ymax = ax.get_ylim()[1]
-    if eline_labels:
-        ax.text(8500 * (1 + zgal) * (1 + vel / c), 1.09 * ymax, r"$\mathrm{Ca}\,\textsc{ii}$",
-            fontsize = 8, ha = "center", va = "bottom")
-        ax.vlines(8500 * (1 + zgal) * (1 + vel / c), 1.0 * ymax, 1.08 * ymax, color = "k", lw = 0.75)
-        ax.text(8544 * (1 + zgal) * (1 + vel / c), 1.09 * ymax, r"$\mathrm{Ca}\,\textsc{ii}$",
-            fontsize = 8, ha = "center", va = "bottom")
-        ax.vlines(8544 * (1 + zgal) * (1 + vel / c), 1.0 * ymax, 1.08 * ymax, color = "k", lw = 0.75)
-        ax.set_ylim(ymin, 1.2 * ymax)
-        ax.text(8664 * (1 + zgal) * (1 + vel / c), 1.09 * ymax, r"$\mathrm{Ca}\,\textsc{ii}$",
-            fontsize = 8, ha = "center", va = "bottom")
-        ax.vlines(8664 * (1 + zgal) * (1 + vel / c), 1.0 * ymax, 1.08 * ymax, color = "k", lw = 0.75)
-        ax.set_ylim(ymin, 1.2 * ymax)
+    trans = transforms.blended_transform_factory(ax.transData, ax.transAxes)
+    ax.set_ylim(ymin, 1.25 * ymax)
+    if eline_labels or absline_labels:
+        ax.text(8500 * (1 + zgal) * (1 + vel / c), 0.88, r"$\mathrm{Ca}\,\textsc{ii}$",
+            fontsize = 8, ha = "center", va = "bottom", transform=trans)
+        ax.vlines(8500 * (1 + zgal) * (1 + vel / c), 0.77, 0.85, color = "k", lw = 0.75, transform=trans)
+        ax.text(8544 * (1 + zgal) * (1 + vel / c), 0.88, r"$\mathrm{Ca}\,\textsc{ii}$",
+            fontsize = 8, ha = "center", va = "bottom", transform=trans)
+        ax.vlines(8544 * (1 + zgal) * (1 + vel / c), 0.77, 0.85, color = "k", lw = 0.75, transform=trans)
+        ax.text(8664 * (1 + zgal) * (1 + vel / c), 0.88, r"$\mathrm{Ca}\,\textsc{ii}$",
+            fontsize = 8, ha = "center", va = "bottom", transform=trans)
+        ax.vlines(8664 * (1 + zgal) * (1 + vel / c), 0.77, 0.85, color = "k", lw = 0.75, transform=trans)
 
     ## Hbeta, OIII ##
     ax = fig.add_subplot(grid[1, 1])
-    mask = np.greater(wave, 4840 * (1 + zgal) * (1 + vel / c)) & np.less(wave, 5026 * (1 + zgal) * (1 + vel / c))
-    mask_model = (np.greater(wave_model, 4840 * (1 + zgal) * (1 + vel / c)) &
-        np.less(wave_model, 5026 * (1 + zgal) * (1 + vel / c)))
+    if eline_labels:
+        mask = np.greater(wave, 4840 * (1 + zgal) * (1 + vel / c)) & np.less(wave, 5026 * (1 + zgal) * (1 + vel / c))
+        mask_model = (np.greater(wave_model, 4840 * (1 + zgal) * (1 + vel / c)) &
+            np.less(wave_model, 5026 * (1 + zgal) * (1 + vel / c)))
+    else:
+        mask = np.greater(wave, 5150 * (1 + zgal) * (1 + vel / c)) & np.less(wave, 5225 * (1 + zgal) * (1 + vel / c))
+        mask_model = (np.greater(wave_model, 5150 * (1 + zgal) * (1 + vel / c)) &
+            np.less(wave_model, 5225 * (1 + zgal) * (1 + vel / c)))
     ax.fill_between(wave[mask], spec[mask] - spec_err[mask], spec[mask] + spec_err[mask],
         color="k", lw=0, alpha=0.25, step="pre")
     ax.plot(wave[mask], spec[mask], color = "k", lw = 1.0, drawstyle = "steps")
@@ -433,20 +456,39 @@ def specfit(galaxy):
     ax.set_xlim(wave[mask].min(), wave[mask].max())
     ymin = ax.get_ylim()[0]
     ymax = ax.get_ylim()[1]
+    trans = transforms.blended_transform_factory(ax.transData, ax.transAxes)
+    ax.set_ylim(ymin, 1.25 * ymax)
     if eline_labels:
-        # Adjust the ylim in order to fit in the line labels, probably far from the best way to do this...
-        ax.text(4862 * (1 + zgal) * (1 + vel / c), 1.09 * ymax, r"$\mathrm{H\beta}$", fontsize = 8, ha = "center", va = "bottom")
-        ax.vlines(4862 * (1 + zgal) * (1 + vel / c), 1.0 * ymax, 1.08 * ymax, color = "k", lw = 0.75)
-        ax.text(5008 * (1 + zgal) * (1 + vel / c), 1.09 * ymax, r"$\textsc{Oiii}$", fontsize = 8, ha = "center", va = "bottom")
-        ax.text(4960 * (1 + zgal) * (1 + vel / c), 1.09 * ymax, r"$\textsc{Oiii}$", fontsize = 8, ha = "center", va = "bottom")
-        ax.vlines([4960 * (1 + zgal) * (1 + vel / c), 5008 * (1 + zgal) * (1 + vel / c)], 1.0 * ymax, 1.08 * ymax, color = "k", lw = 0.75)
-        ax.set_ylim(ymin, 1.2 * ymax)
+        ax.text(4862 * (1 + zgal) * (1 + vel / c), 0.88, r"$\mathrm{H\beta}$", fontsize = 8,
+            ha = "center", va = "bottom", transform=trans)
+        ax.vlines(4862 * (1 + zgal) * (1 + vel / c), 0.77, 0.85, color = "k", lw = 0.75, transform=trans)
+        ax.text(5008 * (1 + zgal) * (1 + vel / c), 0.88, r"$\textsc{Oiii}$", fontsize = 8,
+            ha = "center", va = "bottom", transform=trans)
+        ax.text(4960 * (1 + zgal) * (1 + vel / c), 0.88, r"$\textsc{Oiii}$", fontsize = 8,
+            ha = "center", va = "bottom", transform=trans)
+        ax.vlines([4960 * (1 + zgal) * (1 + vel / c), 5008 * (1 + zgal) * (1 + vel / c)], 0.77, 0.85,
+            color = "k", lw = 0.75, transform=trans)
+    else:
+        ax.text(5167.3 * (1 + zgal) * (1 + vel / c), 0.88, r"$\mathrm{Mg}\,\textsc{i}$", fontsize = 8,
+            ha = "center", va = "bottom", transform=trans)
+        ax.vlines(5167.3 * (1 + zgal) * (1 + vel / c), 0.77, 0.85, color = "k", lw = 0.75, transform=trans)
+        ax.text(5172.7 * (1 + zgal) * (1 + vel / c), 0.88, r"$\mathrm{Mg}\,\textsc{i}$", fontsize = 8,
+            ha = "center", va = "bottom", transform=trans)
+        ax.vlines(5172.7 * (1 + zgal) * (1 + vel / c), 0.77, 0.85, color = "k", lw = 0.75, transform=trans)
+        ax.text(5183.6 * (1 + zgal) * (1 + vel / c), 0.88, r"$\mathrm{Mg}\,\textsc{i}$", fontsize = 8,
+            ha = "center", va = "bottom", transform=trans)
+        ax.vlines(5183.6 * (1 + zgal) * (1 + vel / c), 0.77, 0.85, color = "k", lw = 0.75, transform=trans)
 
     ## NII, Halpha, SII ##
     ax = fig.add_subplot(grid[2, 0])
-    mask = np.greater(wave, 6538 * (1 + zgal) * (1 + vel / c)) & np.less(wave, 6744 * (1 + zgal) * (1 + vel / c))
-    mask_model = (np.greater(wave_model, 6538 * (1 + zgal) * (1 + vel / c)) &
-        np.less(wave_model, 6744 * (1 + zgal) * (1 + vel / c)))
+    if eline_labels:
+        mask = np.greater(wave, 6538 * (1 + zgal) * (1 + vel / c)) & np.less(wave, 6744 * (1 + zgal) * (1 + vel / c))
+        mask_model = (np.greater(wave_model, 6538 * (1 + zgal) * (1 + vel / c)) &
+            np.less(wave_model, 6744 * (1 + zgal) * (1 + vel / c)))
+    else:
+        mask = np.greater(wave, 5800 * (1 + zgal) * (1 + vel / c)) & np.less(wave, 6000 * (1 + zgal) * (1 + vel / c))
+        mask_model = (np.greater(wave_model, 5800 * (1 + zgal) * (1 + vel / c)) &
+            np.less(wave_model, 6000 * (1 + zgal) * (1 + vel / c)))
     ax.fill_between(wave[mask], spec[mask] - spec_err[mask], spec[mask] + spec_err[mask],
         color="k", lw=0, alpha=0.25, step="pre")
     ax.plot(wave[mask], spec[mask], color = "k", lw = 1.0, drawstyle = "steps")
@@ -454,17 +496,29 @@ def specfit(galaxy):
     ax.set_xlim(wave[mask].min(), wave[mask].max())
     ymin = ax.get_ylim()[0]
     ymax = ax.get_ylim()[1]
+    trans = transforms.blended_transform_factory(ax.transData, ax.transAxes)
+    ax.set_ylim(ymin, 1.25 * ymax)
     if eline_labels:
-        # Adjust the ylim in order to fit in the line labels, probably far from the best way to do this...
-        ax.text(6564 * (1 + zgal) * (1 + vel / c), 1.09 * ymax, r"$\mathrm{H\alpha}$", fontsize = 8, ha = "center", va = "bottom")
-        ax.vlines(6564 * (1 + zgal) * (1 + vel / c), 1.0 * ymax, 1.08 * ymax, color = "k", lw = 0.75)
-        ax.text(6549 * (1 + zgal) * (1 + vel / c), 1.09 * ymax, r"$\textsc{Nii}$", fontsize = 8, ha = "center", va = "bottom")
-        ax.text(6585 * (1 + zgal) * (1 + vel / c), 1.09 * ymax, r"$\textsc{Nii}$", fontsize = 8, ha = "center", va = "bottom")
-        ax.vlines([6549 * (1 + zgal) * (1 + vel / c), 6585 * (1 + zgal) * (1 + vel / c)], 1.0 * ymax, 1.08 * ymax, color = "k", lw = 0.75)
-        ax.text(6718 * (1 + zgal) * (1 + vel / c), 1.09 * ymax, r"$\textsc{Sii}$", fontsize = 8, ha = "center", va = "bottom")
-        ax.text(6732 * (1 + zgal) * (1 + vel / c), 1.09 * ymax, r"$\textsc{Sii}$", fontsize = 8, ha = "center", va = "bottom")
-        ax.vlines([6718 * (1 + zgal) * (1 + vel / c), 6732 * (1 + zgal) * (1 + vel / c)], 1.0 * ymax, 1.08 * ymax, color = "k", lw = 0.75)
-        ax.set_ylim(ymin, 1.2 * ymax)
+        ax.text(6564 * (1 + zgal) * (1 + vel / c), 0.88, r"$\mathrm{H\alpha}$", fontsize = 8,
+            ha = "center", va = "bottom", transform=trans)
+        ax.vlines(6564 * (1 + zgal) * (1 + vel / c), 0.77, 0.85, color = "k", lw = 0.75, transform=trans)
+        ax.text(6549 * (1 + zgal) * (1 + vel / c), 0.88, r"$\textsc{Nii}$", fontsize = 8,
+            ha = "center", va = "bottom", transform=trans)
+        ax.text(6585 * (1 + zgal) * (1 + vel / c), 0.88, r"$\textsc{Nii}$", fontsize = 8,
+            ha = "center", va = "bottom", transform=trans)
+        ax.vlines([6549 * (1 + zgal) * (1 + vel / c), 6585 * (1 + zgal) * (1 + vel / c)], 0.77, 0.85,
+            color = "k", lw = 0.75, transform=trans)
+        ax.text(6718 * (1 + zgal) * (1 + vel / c), 0.88, r"$\textsc{Sii}$", fontsize = 8,
+            ha = "center", va = "bottom", transform=trans)
+        ax.text(6732 * (1 + zgal) * (1 + vel / c), 0.88, r"$\textsc{Sii}$", fontsize = 8,
+            ha = "center", va = "bottom", transform=trans)
+        ax.vlines([6718 * (1 + zgal) * (1 + vel / c), 6732 * (1 + zgal) * (1 + vel / c)], 0.77, 0.85,
+            color = "k", lw = 0.75, transform=trans)
+    else:
+        ax.text(5895.6 * (1 + zgal) * (1 + vel / c), 0.88, r"$\mathrm{Na}\,\textsc{i}$", fontsize = 8,
+            ha = "center", va = "bottom", transform=trans)
+        ax.vlines(5895.6 * (1 + zgal) * (1 + vel / c), 0.75, 0.85, color = "k", lw = 0.75, transform=trans)
+
     # Figure labels
     fig.supxlabel(r"Wavelength$\;\;\mathrm{[\AA]}$", fontsize = 10, y = 0.03)
     fig.supylabel(r"Flux density$\;\;\mathrm{[10^{-17}\;erg\,s^{1}\,cm^{-2}\,\AA^{-1}}]$", fontsize = 10, x = 0.07)

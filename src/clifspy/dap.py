@@ -24,8 +24,12 @@ class WEAVEDataCube(DataCube):
     def __init__(self, ifile):
         _ifile = pathlib.Path(ifile).resolve()
         find_ints = re.findall(r'\d+', ifile)
-        if len(find_ints) > 1: raise ValueError("More than one ID found")
-        config_path = "/arc/projects/CLIFS/config_files/clifs_{}.toml".format(find_ints[0])
+        if len(find_ints) == 2 and find_ints[1] == "5":
+            config_path = "/arc/projects/CLIFS/config_files/clifs_{}.toml".format(find_ints[0])
+        elif len(find_ints) > 1:
+            raise ValueError("More than one ID found")
+        else:
+            config_path = "/arc/projects/CLIFS/config_files/clifs_{}.toml".format(find_ints[0])
         if not _ifile.exists():
             raise FileNotFoundError(f'File does not exist: {_ifile}')
         # Set the paths
@@ -108,9 +112,10 @@ def _move_manga_dap_output_files(config, dap_dir_name = "HYB10-MILESHC-MASTARSSP
         subprocess.run(["gunzip",  "-f", config["files"]["outdir_dap"] + "/weave-calibrated-LOGCUBE-{}.fits.gz".format(dap_dir_name)])
         subprocess.run(["gunzip", "-f", config["files"]["outdir_dap"] + "/weave-calibrated-MAPS-{}.fits.gz".format(dap_dir_name)])
 
-def run_manga_dap(galaxy, decompress = False):
+def run_manga_dap(galaxy, decompress=False):
     cube_path = galaxy.config["files"]["cube_sci"]
-    dap_config_path = "/arc/projects/CLIFS/config_files/weave.toml"
+    dap_config_path = galaxy.config["files"]["dap_config"]
+    #dap_config_path = "/arc/projects/CLIFS/config_files/weave_xsl.toml"
     out_path = galaxy.config["files"]["outdir_dap"]
     subprocess.run(["manga_dap",
                     "-f",
@@ -125,4 +130,5 @@ def run_manga_dap(galaxy, decompress = False):
                     "-o",
                     out_path])
     # Move output files back one step in file tree, probably a way to do this via the DAP call..
-    _move_manga_dap_output_files(galaxy.config, decompress = decompress)
+    _move_manga_dap_output_files(galaxy.config, dap_dir_name="HYB10-XSLSSP-MASTARSSP",
+        decompress=decompress)

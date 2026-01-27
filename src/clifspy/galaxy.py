@@ -47,7 +47,7 @@ class Galaxy:
 
     def get_maps(self, force_manga=False):
         dap_dir = self.config["files"]["outdir_dap"]
-        find_maps = glob.glob(dap_dir + "/*-MAPS-HYB10-MILESHC-MASTARSSP.fits*")
+        find_maps = glob.glob(dap_dir + "/*-MAPS-HYB10-XSLSSP-MASTARSSP.fits*")
         if len(find_maps) == 0:
             return None
         if len(find_maps) == 1:
@@ -75,7 +75,7 @@ class Galaxy:
         return hdul["FLUX"].data
 
     def get_modelcube(self):
-        find_cube = glob.glob(self.config["files"]["outdir_dap"] + "/*-LOGCUBE-HYB10-MILESHC-MASTARSSP.fits*")
+        find_cube = glob.glob(self.config["files"]["outdir_dap"] + "/*-LOGCUBE-HYB10-XSLSSP-MASTARSSP.fits*")
         if len(find_cube) == 0:
             return None
         if len(find_cube) == 1:

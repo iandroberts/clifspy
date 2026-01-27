@@ -14,6 +14,7 @@ from astropy.io import fits
 
 from photutils import aperture
 from photutils import background
+from scipy.spatial import KDTree
 from spectral_cube import SpectralCube
 
 import sys
@@ -198,7 +199,7 @@ def stitch_cubes(cube_blue, cube_red, ivar_blue, ivar_red):
     ivar_full = (ivar_blue * ivar_blue + ivar_red * ivar_red) / (ivar_blue + ivar_red)
     return cube_full, ivar_full
 
-def write_fullcube(galaxy, fname_out, fname_blue, fname_red, config, cube_full, ivar_full):
+def write_fullcube(galaxy, fname_out, fname_blue, fname_red, config, flux, ivar, hdr):
     head = fits.Header()
     head["TELESCOP"] = ("WHT", "4.2m William Herschel Telescope")
     head["DETECTOR"] = ("WEAVELIFU", "WEAVE Large IFU")
@@ -206,26 +207,38 @@ def write_fullcube(galaxy, fname_out, fname_blue, fname_red, config, cube_full, 
     head["INFILE_R"] = fname_red
     head["OBJRA"] = config["galaxy"]["ra"]
     head["OBJDEC"] = config["galaxy"]["dec"]
-    data = np.nan_to_num(cube_full.unmasked_data[:, :, :].value)
-    ivar = np.nan_to_num(ivar_full.unmasked_data[:, :, :].value)
     ivar[ivar < 0] = 0
-    mask = np.isnan(data) | np.isnan(ivar)
-    hdr = cube_full.header.copy()
+    mask = np.isnan(flux) | np.isnan(ivar)
     if galaxy.config["pipeline"]["fix_astrometry"]:
-        hdr = astrometry.find_astrometry_solution(data, WCS(cube_full.header))
+        hdr = astrometry.find_astrometry_solution(flux, WCS(hdr))
         logger.info("Fixed WCS solution")
     prim_hdu = fits.PrimaryHDU(header=head)
-    img_hdu = fits.ImageHDU(data=data, header=hdr, name="FLUX")
+    img_hdu = fits.ImageHDU(data=flux, header=hdr, name="FLUX")
     ivar_hdu = fits.ImageHDU(data=ivar, header=hdr, name="IVAR")
     mask_hdu = fits.ImageHDU(data=mask.astype(int), header=hdr, name="MASK")
     hdul = fits.HDUList([prim_hdu, img_hdu, ivar_hdu, mask_hdu])
     hdul.writeto(fname_out, overwrite = True)
     fname_flux = fname_out.split(".fits")[0] + "_only-flux.fits"
-    hdu_flux = fits.PrimaryHDU(data = data.astype("float32"), header = cube_full.header)
+    hdu_flux = fits.PrimaryHDU(data = flux.astype("float32"), header=hdr)
     hdu_flux.writeto(fname_flux, overwrite = True)
     if galaxy.config["pipeline"]["hdf5"]:
         subprocess.run(["fits2idia", fname_flux])
         logger.info("Converted cube to HDF5")
+
+def fill_holes(cube, N=3, dmax=3):
+    data = cube.unmasked_data[:, :,  :].value.copy()
+    mask = np.all(np.isnan(data), axis=0)
+    null = np.argwhere(mask)
+    nonnull = np.argwhere(~mask)
+
+    tree = KDTree(nonnull)
+    dist, ind = tree.query(null, k=N)
+    for i, c in enumerate(null):
+        if dist[i].max() > dmax:
+            continue
+        slab = np.array([data[:, cc[0], cc[1]] for cc in nonnull[ind][i]])
+        data[:, c[0], c[1]] = np.average(slab, weights=1/dist[i], axis=0)
+    return data
 
 def generate_cube(galaxy, fullfield=False):
     if galaxy.config["pipeline"]["downsample_spatial"] and (galaxy.config["pipeline"]["factor_spatial"] is None):
@@ -263,15 +276,20 @@ def generate_cube(galaxy, fullfield=False):
     ivar_red = reproject_spectral_axis(ivar_red, minlam*units.AA, maxlam*units.AA, cube_blue.header["CDELT3"]*units.m)
     logger.info("Reprojected red and blue cubes onto common spectral axis")
     cube_full, ivar_full = stitch_cubes(cube_blue, cube_red, ivar_blue, ivar_red)
+    data = cube_full.unmasked_data[:, :,  :].value.copy()
+    ivar = ivar_full.unmasked_data[:, :,  :].value.copy()
+    hdr = cube_full.header
     logger.info("Combined red and blue cubes")
+    if galaxy.config["pipeline"]["fill_holes"]:
+        data = fill_holes(cube_full)
     if galaxy.config["pipeline"]["downsample_spatial"]:
         if fullfield:
             outfile = outdir + "/calibrated_cube_full.fits"
         else:
             outfile = outdir + "/calibrated_cube.fits"
-        write_fullcube(galaxy, outfile, fname_blue, fname_red, galaxy.config, cube_full, ivar_full)
+        write_fullcube(galaxy, outfile, fname_blue, fname_red, galaxy.config, data, ivar, hdr)
         logger.info(f"Wrote combined, flux-calibrated cube: {outfile}")
     else:
         outfile = outdir + "/calibrated_cube_p5.fits"
-        write_fullcube(galaxy, outfile, fname_blue, fname_red, galaxy.config, cube_full, ivar_full)
+        write_fullcube(galaxy, outfile, fname_blue, fname_red, galaxy.config, cube, ivar, hdr)
         logger.info(f"Wrote combined, flux-calibrated cube: {outfile}")

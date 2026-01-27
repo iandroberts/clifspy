@@ -2,6 +2,7 @@ import argparse
 import glob
 import logging
 import re
+import sys
 
 from astropy import coordinates
 from astropy.table import Table
@@ -124,10 +125,9 @@ class clifs_config_file:
 
     def _populate_pipeline(self, file):
         print('[pipeline]', file=file)
-        print('bkgsub = true', file=file)
+        print('bkgsub = false', file=file)
         print('bkgsub_galmask = true', file=file)
         print('downsample_spatial = true', file=file)
-        print('alpha = 1.28', file=file)
         print('factor_spatial = 2', file=file)
         print('downsample_wav = true', file=file)
         print('fill_ccd_gaps = false', file=file)
@@ -159,6 +159,7 @@ class clifs_config_file:
         print('fov.asinh_a = 0.05', file=file)
         print("", file=file)
         print('specfit.eline_labels = true', file=file)
+        print('specfit.inset = true', file=file)
         print('specfit.inset_ylim = [1.3, 4.0]', file=file)
 
     def make(self):
