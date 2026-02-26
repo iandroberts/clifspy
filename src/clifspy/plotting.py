@@ -216,8 +216,8 @@ class panel_image:
         ax.set_facecolor("#dddddd")
 
     def flux_ha(self, gax, xlim = None, ylim = None, return_mask = False, yticks = False, xticks = False):
-        flux = self.galaxy.get_eline_map("Ha-6564")
-        flux_sn = flux * np.sqrt(self.galaxy.get_eline_map("Ha-6564", map = "GFLUX_IVAR"))
+        flux = self.galaxy.get_single_map("Ha-6564")
+        flux_sn = flux * np.sqrt(self.galaxy.get_single_map("Ha-6564", map = "GFLUX_IVAR"))
         mask = flux_sn < 4
         flux[mask] = np.nan
         ax = self.fig.add_subplot(gax, projection = WCS(self.maps[1].header, naxis = 2))
@@ -244,9 +244,9 @@ class panel_image:
             return mask
 
     def v_ha(self, gax, mask = None, xlim = None, ylim = None, yticks = False, xticks = False):
-        vel = self.galaxy.get_eline_map("Ha-6564", map = "GVEL")
-        flux = self.galaxy.get_eline_map("Ha-6564")
-        flux_sn = flux * np.sqrt(self.galaxy.get_eline_map("Ha-6564", map = "GFLUX_IVAR"))
+        vel = self.galaxy.get_single_map("Ha-6564", map = "GVEL")
+        flux = self.galaxy.get_single_map("Ha-6564")
+        flux_sn = flux * np.sqrt(self.galaxy.get_single_map("Ha-6564", map = "GFLUX_IVAR"))
         mask = flux_sn < 4
         vel[mask] = np.nan
         ax = self.fig.add_subplot(gax, projection = WCS(self.maps[1].header, naxis = 2))
@@ -269,9 +269,9 @@ class panel_image:
         ax.set_facecolor("#dddddd")
 
     def vdisp_ha(self, gax, mask = None, xlim = None, ylim = None, yticks = False, xticks = False, vel_min = 0, vel_max = 140):
-        vel = self.galaxy.get_eline_map("Ha-6564", map = "GSIGMA")
-        flux = self.galaxy.get_eline_map("Ha-6564")
-        flux_sn = flux * self.galaxy.get_eline_map("Ha-6564", map = "GFLUX_IVAR")
+        vel = self.galaxy.get_single_map("Ha-6564", map = "GSIGMA")
+        flux = self.galaxy.get_single_map("Ha-6564")
+        flux_sn = flux * self.galaxy.get_single_map("Ha-6564", map = "GFLUX_IVAR")
         mask = flux_sn < 4
         vel[mask] = np.nan
         ax = self.fig.add_subplot(gax, projection = WCS(self.maps[1].header, naxis = 2))
@@ -336,7 +336,7 @@ def specfit(galaxy):
     mask_gap_red = np.greater(wave, lgap_red[0]) & np.less(wave, lgap_red[1])
     mask_gap_blue = np.greater(wave, lgap_blue[0]) & np.less(wave, lgap_blue[1])
     x, y = np.round(wcs.celestial.world_to_pixel(galaxy.c)).astype(int)
-    vel = galaxy.get_eline_map("Ha-6564", map = "GVEL")[y, x]
+    vel = galaxy.get_single_map("Ha-6564", map = "GVEL")[y, x]
     spec = flux[:, y, x]
     spec_err = 1 / np.sqrt(ivar[:, y, x])
     err = 1 / np.sqrt(ivar[:, y, x])
@@ -544,20 +544,44 @@ def reproject_manga_map(data, snr, wcs, wcs_out, shape_out, method = "interp"):
     else:
         raise ValueError("'method' must either be 'interp' or 'exact'")
 
-def compare_weave_manga(galaxy, line, fig = None, gax = None, j = None, sn_cut = 4, return_arrays = False):
-    weave_map, weave_wcs = galaxy.get_eline_map(line, return_wcs=True)
-    weave_ivar = galaxy.get_eline_map(line, map="GFLUX_IVAR")
-    weave_sn = weave_map * np.sqrt(weave_ivar)
-    manga_map, manga_wcs = galaxy.get_eline_map(line, return_wcs=True, force_manga=True)
-    manga_ivar = galaxy.get_eline_map(line, map="GFLUX_IVAR", force_manga=True)
+def compare_weave_manga(galaxy, line, fig=None, gax=None, j=None, sn_cut=4,
+        return_arrays=False):
+    if line == "g-band":
+        weave_map, weave_wcs = galaxy.get_single_map(map="SPX_MFLUX",
+            return_wcs=True)
+        weave_ivar = galaxy.get_single_map(map="SPX_MFLUX_IVAR")
+        manga_map, manga_wcs = galaxy.get_single_map(map="SPX_MFLUX",
+            return_wcs=True, force_manga=True)
+        manga_ivar = galaxy.get_single_map(map="SPX_MFLUX_IVAR",
+            force_manga=True)
+    else:
+        weave_map, weave_wcs = galaxy.get_single_map(line=line, return_wcs=True)
+        weave_ivar = galaxy.get_single_map(line=line, map="GFLUX_IVAR")
+        manga_map, manga_wcs = galaxy.get_single_map(line=line, return_wcs=True,
+            force_manga=True)
+        manga_ivar = galaxy.get_single_map(line=line, map="GFLUX_IVAR",
+            force_manga=True)
     manga_sn = manga_map * np.sqrt(manga_ivar)
-    manga_reproj, manga_sn = reproject_manga_map(manga_map, manga_sn, manga_wcs, weave_wcs,
-        weave_map.shape, method="exact")
-    mask_det = np.greater(weave_sn, sn_cut) & np.greater(manga_sn, sn_cut) & np.greater(weave_map, 0) & np.greater(manga_reproj, 0)
+    weave_sn = weave_map * np.sqrt(weave_ivar)
+    manga_reproj, manga_sn = reproject_manga_map(
+        manga_map,
+        manga_sn,
+        manga_wcs,
+        weave_wcs,
+        weave_map.shape,
+        method="exact",
+    )
+    mask_det = (
+        np.greater(weave_sn, sn_cut) & np.greater(manga_sn, sn_cut)
+        & np.greater(weave_map, 0) & np.greater(manga_reproj, 0)
+    )
     weave_map[~mask_det] = np.nan
     manga_reproj[~mask_det] = np.nan
     if return_arrays:
-        return list(manga_reproj[np.isfinite(manga_reproj)]), list(weave_map[np.isfinite(weave_map)])
+        return (
+            list(manga_reproj[np.isfinite(manga_reproj)]),
+            list(weave_map[np.isfinite(weave_map)],
+        )
     weave_err = weave_map / weave_sn
     manga_err = manga_reproj / manga_sn
     delta = np.log10(weave_map.ravel() / manga_reproj.ravel())
@@ -565,7 +589,8 @@ def compare_weave_manga(galaxy, line, fig = None, gax = None, j = None, sn_cut =
     sig = np.nanstd(delta)
     ax = fig.add_subplot(gax)
     ax.errorbar(manga_reproj.ravel(), weave_map.ravel(), xerr = 0, yerr = 0, #xerr = manga_err.ravel(), yerr = weave_err.ravel(),
-                color = "k", ls = "none", marker = "o", mew = 0, ms = 3, alpha = 0.75, elinewidth = 0.75)
+        color = "k", ls = "none", marker = "o", mew = 0, ms = 3,
+        alpha = 0.75, elinewidth = 0.75)
     ax.plot([0.01, 1000], [0.01, 1000], color = "C1", ls = "--")
     ax.set_aspect("equal")
     ax.set_xscale("log")
@@ -574,9 +599,12 @@ def compare_weave_manga(galaxy, line, fig = None, gax = None, j = None, sn_cut =
     ax.set_ylim(0.01, 1000)
     ax.set_xticks([0.01, 1.0, 100])
     ax.set_yticks([0.01, 1.0, 100])
-    ax.text(0.02, 0.98, line, fontsize = 10, ha = "left", va = "top", transform = ax.transAxes)
-    ax.text(0.98, 0.11, r"$\Delta = {:.2f}$".format(mu), fontsize = 10, ha = "right", va = "bottom", transform = ax.transAxes)
-    ax.text(0.98, 0.02, r"$\sigma = {:.2f}$".format(sig), fontsize = 10, ha = "right", va = "bottom", transform = ax.transAxes)
+    ax.text(0.02, 0.98, line, fontsize=10, ha="left", va="top",
+        transform=ax.transAxes)
+    ax.text(0.98, 0.11, r"$\Delta = {:.2f}$".format(mu), fontsize=10,
+        ha="right", va="bottom", transform=ax.transAxes)
+    ax.text(0.98, 0.02, r"$\sigma = {:.2f}$".format(sig), fontsize=10,
+        ha="right", va="bottom", transform=ax.transAxes)
     if j % 5 > 0:
         ax.set_yticklabels([])
     if j < 10:
@@ -600,16 +628,27 @@ def weave_manga_line_fluxes(galaxy):
                   "NII-6585",
                   "SII-6718",
                   "SII-6732",
+                  "g-band",
                  ])
     fig = plt.figure(figsize = (9.0, 5.8))
     grid = gs.GridSpec(3, 5)
     grid.update(wspace = 0.1, hspace = 0.1)
     for j in range(lines.size):
         compare_weave_manga(galaxy, lines[j], fig=fig, gax=grid[j], j=j)
-    fig.supxlabel(r"MaNGA:$\quad F_\lambda \;\; \mathrm{[erg\,s^{-1}\,cm^{-2}]}$", fontsize = 10, y = 0.04)
-    fig.supylabel(r"WEAVE:$\quad F_\lambda \;\; \mathrm{[erg\,s^{-1}\,cm^{-2}]}$", fontsize = 10, x = 0.05)
-    fig.savefig("/arc/projects/CLIFS/plots/manga_comparison/weave_manga_line_fluxes_clifs{}.pdf".format(galaxy.clifs_id), bbox_inches = "tight", pad_inches = 0.03)
-    fig.savefig("/arc/projects/CLIFS/plots/manga_comparison/weave_manga_line_fluxes_clifs{}.png".format(galaxy.clifs_id), bbox_inches = "tight", pad_inches = 0.03)
+    fig.supxlabel(r"MaNGA:$\quad F_\lambda \;\; \mathrm{[erg\,s^{-1}\,cm^{-2}]}$",
+        fontsize=10, y=0.04)
+    fig.supylabel(r"WEAVE:$\quad F_\lambda \;\; \mathrm{[erg\,s^{-1}\,cm^{-2}]}$",
+        fontsize=10, x=0.05)
+    fig.savefig(
+        "/arc/projects/CLIFS/plots/manga_comparison/weave_manga_line_fluxes_clifs{}.pdf".format(galaxy.clifs_id),
+        bbox_inches="tight",
+        pad_inches=0.03,
+    )
+    fig.savefig(
+        "/arc/projects/CLIFS/plots/manga_comparison/weave_manga_line_fluxes_clifs{}.png".format(galaxy.clifs_id),
+        bbox_inches="tight",
+        pad_inches=0.03,
+    )
 
 def fiber_map(x0, y0, header):
     y_spacing = 3.4 / 3600 / header["PC2_2"]
@@ -719,8 +758,8 @@ def _plot_r90(galaxy, ax, wcs):
     px_aper.plot(ax = ax, fc = "none", ec = "k", ls = "--")
 
 def ha_tail_plot(galaxy):
-    flux, wcs = galaxy.get_eline_map("Ha-6564", return_wcs = True)
-    flux_sn = flux * np.sqrt(galaxy.get_eline_map("Ha-6564", map = "GFLUX_IVAR"))
+    flux, wcs = galaxy.get_single_map("Ha-6564", return_wcs = True)
+    flux_sn = flux * np.sqrt(galaxy.get_single_map("Ha-6564", map = "GFLUX_IVAR"))
     flux[flux_sn < 3] = np.nan
     hba, hba_h = galaxy.get_cutout_image("lofar", "hba", header = True)
     lev_hba = sigma_clipped_stats(hba)[2] * np.array([2.5])

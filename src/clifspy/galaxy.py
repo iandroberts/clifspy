@@ -86,16 +86,29 @@ class Galaxy:
             raise ValueError(f"Found more than two CUBE files: CLIFS {self.clifs_id}")
         return cubefile
 
-    def get_eline_map(self, line, map="GFLUX", return_map=True, return_wcs=False,
-            force_manga=False):
+    def get_single_map(self, line=None, map="GFLUX", return_map=True,
+            return_wcs=False, force_manga=False):
         mapsfile = self.get_maps(force_manga=force_manga)
-        if return_wcs and return_map:
-            return (mapsfile["EMLINE_{}".format(map)].data[eline_lookup(line)],
-                WCS(mapsfile["EMLINE_GFLUX"].header).celestial)
-        elif return_map:
-            return mapsfile["EMLINE_{}".format(map)].data[eline_lookup(line)]
+        if line is not None:
+            if return_wcs and return_map:
+                return (
+                    mapsfile[f"EMLINE_{map}"].data[eline_lookup(line)],
+                    WCS(mapsfile["EMLINE_GFLUX"].header).celestial,
+                )
+            elif return_map:
+                return mapsfile[f"EMLINE_{map}"].data[eline_lookup(line)]
+            else:
+                return WCS(mapsfile["EMLINE_GFLUX"].header).celestial
         else:
-            return WCS(mapsfile["EMLINE_GFLUX"].header).celestial
+            if return_wcs and return_map:
+                return (
+                    mapsfile[f"{map}"].data,
+                    WCS(mapsfile["EMLINE_GFLUX"].header).celestial,
+                )
+            elif return_map:
+                return mapsfile[f"{map}"].data
+            else:
+                return WCS(mapsfile["EMLINE_GFLUX"].header).celestial
 
     def get_spectrum(self, x, y, only_wave=False):
         data_cube = fits.open(self.config["files"]["cube_sci"])
