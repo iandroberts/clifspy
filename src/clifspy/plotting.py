@@ -580,7 +580,7 @@ def compare_weave_manga(galaxy, line, fig=None, gax=None, j=None, sn_cut=4,
     if return_arrays:
         return (
             list(manga_reproj[np.isfinite(manga_reproj)]),
-            list(weave_map[np.isfinite(weave_map)],
+            list(weave_map[np.isfinite(weave_map)]),
         )
     weave_err = weave_map / weave_sn
     manga_err = manga_reproj / manga_sn
