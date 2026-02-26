@@ -225,8 +225,8 @@ def write_fullcube(galaxy, fname_out, fname_blue, fname_red, config, flux, ivar,
         subprocess.run(["fits2idia", fname_flux])
         logger.info("Converted cube to HDF5")
 
-def fill_holes(cube, N=3, dmax=3):
-    data = cube.unmasked_data[:, :,  :].value.copy()
+def fill_holes(data, ivar, N=3, dmax=3):
+    #data = cube.unmasked_data[:, :,  :].value.copy()
     mask = np.all(np.isnan(data), axis=0)
     null = np.argwhere(mask)
     nonnull = np.argwhere(~mask)
@@ -237,8 +237,10 @@ def fill_holes(cube, N=3, dmax=3):
         if dist[i].max() > dmax:
             continue
         slab = np.array([data[:, cc[0], cc[1]] for cc in nonnull[ind][i]])
+        slab_ivar = np.array([ivar[:, cc[0], cc[1]] for cc in nonnull[ind][i]])
         data[:, c[0], c[1]] = np.average(slab, weights=1/dist[i], axis=0)
-    return data
+        ivar[:, c[0], c[1]] = np.average(slab_ivar, weights=1/dist[i], axis=0)
+    return data, ivar
 
 def generate_cube(galaxy, fullfield=False):
     if galaxy.config["pipeline"]["downsample_spatial"] and (galaxy.config["pipeline"]["factor_spatial"] is None):
@@ -281,7 +283,7 @@ def generate_cube(galaxy, fullfield=False):
     hdr = cube_full.header
     logger.info("Combined red and blue cubes")
     if galaxy.config["pipeline"]["fill_holes"]:
-        data = fill_holes(cube_full)
+        data, ivar = fill_holes(data, ivar)
     if galaxy.config["pipeline"]["downsample_spatial"]:
         if fullfield:
             outfile = outdir + "/calibrated_cube_full.fits"

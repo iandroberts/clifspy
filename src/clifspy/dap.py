@@ -13,6 +13,7 @@ from mangadap.datacube.datacube import DataCube
 from mangadap.util.sampling import Resample, angstroms_per_pixel
 import matplotlib.pyplot as plt
 import numpy as np
+from scipy.interpolate import splev
 import toml
 
 import clifspy.utils
@@ -38,7 +39,7 @@ class WEAVEDataCube(DataCube):
         # Collect the metadata into a dictionary
         config = toml.load(config_path)
         meta = config["galaxy"]
-        sres = 2500
+        #sres = 2500
         # Open the file and initialize the DataCube base class
         with fits.open(str(_ifile)) as hdu:
             print('Reading WEAVE datacube data ...', end='\r')
@@ -54,6 +55,15 @@ class WEAVEDataCube(DataCube):
         # - Get the wavelength vector
         spatial_shape = flux.shape[1:][::-1]
         wave = clifspy.utils.spectral_axis_from_wcs(wcs, flux.shape[0]) * units.AA
+        nspec = np.arange(100, 601, 100)
+        fwhm_blue, _ = getfwhm(config["files"]["lsf_blue"], nspec, wave.value)
+        fwhm_red, _ = getfwhm(config["files"]["lsf_red"], nspec, wave.value)
+        fwhm_blue_flat = np.mean(fwhm_blue, axis=0)
+        fwhm_red_flat = np.mean(fwhm_red, axis=0)
+        fwhm_blue_flat[wave.value > 6000] = np.nan
+        fwhm_red_flat[wave.value < 5850] = np.nan
+        fwhm = np.nanmean([fwhm_blue_flat, fwhm_red_flat], axis=0)
+        sres = wave.value / fwhm
         # - Convert wavelengths to vacuum
         wlum = wave.to(units.um).value
         wave = ((1+1e-6*(287.6155+1.62887/wlum**2+0.01360/wlum**4)) * wave).to(units.AA).value
@@ -88,18 +98,62 @@ class WEAVEDataCube(DataCube):
         ivar = r.oute.reshape(*spatial_shape, -1)
         flux = r.outy.reshape(*spatial_shape, -1)
         mask = r.outf.reshape(*spatial_shape, -1) < 0.8
-        mask = mask | (~np.isfinite(ivar)) | (~np.isfinite(flux))
+        mask = mask | (~np.isfinite(ivar)) | (~np.isfinite(flux)) | (ivar > 1000)
         gpm = np.logical_not(mask)
         ivar[gpm] = 1 / ivar[gpm]**2
         ivar[mask] = 0.0
         flux[mask] = 0.0
         #ivar[(~np.isfinite(ivar))] = 0.0
-        _sres = np.full(ivar.shape, sres, dtype=float)
+        #_sres = np.full(ivar.shape, sres, dtype=float)
+        _sres = np.tile(sres, (ivar.shape[0], ivar.shape[1], 1))
         #flux[~np.isfinite(flux)] = 0.0
         # Default name assumes file names like, e.g., '*_icubew.fits'
         super().__init__(flux, ivar=ivar, mask=mask, sres=_sres,
                          wave=r.outx, meta=meta, prihdr=head_new, wcs=wcs_new,
                          name=_ifile.name.split('_')[0])
+
+def getfwhm(file, nspec_list, wl):
+    """
+    TAKEN FROM: https://camcead.ast.cam.ac.uk/weave/calibrationviewer
+    Evaluate FWHM for a list of nspec values across given wavelengths.
+    Returns (fwhm_array, actual_nspec_array).
+    fwhm_array shape: (N_nspec, N_wl) matching input order.
+    """
+    wl = np.asarray(wl)
+    nspec_array = np.asarray(nspec_list).ravel()
+    fwhm_list = []
+    actual_nspec_list = []
+    with fits.open(file) as hdul:
+        data = hdul['LSF_splines'].data
+        available_nspec = data['NSPEC']
+        wl_min = hdul[0].header['MINWL']
+        wl_max = hdul[0].header['MAXWL']
+        for ns in nspec_array:
+            idx = np.abs(available_nspec - ns).argmin()
+            actual_nspec = int(available_nspec[idx])
+            t = data['t'][idx]
+            c = data['c'][idx]
+            k = int(data['k'][idx])
+            tck = (t, c, k)
+            if actual_nspec != ns:
+                print(f"Warning: nspec {ns} not found in LSF file. Using nearest: {actual_nspec}")
+            below_range = wl < wl_min
+            above_range = wl > wl_max
+            within_range = ~below_range & ~above_range
+            fwhm = np.zeros_like(wl, dtype=float)
+            if np.any(within_range):
+                fwhm[within_range] = splev(wl[within_range], tck)
+            if np.any(below_range):
+                edge_value_low = splev(wl_min, tck)
+                fwhm[below_range] = edge_value_low
+            if np.any(above_range):
+                edge_value_high = splev(wl_max, tck)
+                fwhm[above_range] = edge_value_high
+            fwhm_list.append(fwhm)
+            actual_nspec_list.append(actual_nspec)
+    fwhm_array = np.stack(fwhm_list, axis=0) if fwhm_list else np.empty((0, len(wl)))
+    actual_nspec_array = np.array(actual_nspec_list, dtype=int)
+    return fwhm_array, actual_nspec_array
 
 def _move_manga_dap_output_files(config, dap_dir_name = "HYB10-MILESHC-MASTARSSP", decompress = False):
     os.rename(config["files"]["outdir_dap"] + "/{}/weave-calibrated-LOGCUBE-{}.fits.gz".format(dap_dir_name, dap_dir_name),

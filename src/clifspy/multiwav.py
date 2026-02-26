@@ -1,20 +1,22 @@
+from pathlib import Path
 import glob
+import os
+import logging
+import re
+
 from astropy.coordinates import SkyCoord
 from astropy import constants
-from clifspy.galaxy import Galaxy
 import numpy as np
 from astropy.io import fits
 from astropy.wcs import WCS
 import astropy.units as u
-import clifspy.utils as utils
-import os
-import logging
-import re
 from astropy.stats import sigma_clipped_stats, gaussian_fwhm_to_sigma
-from photutils.segmentation import (detect_sources,
-                                    make_2dgaussian_kernel)
+from photutils.segmentation import detect_sources, make_2dgaussian_kernel
 from astropy.convolution import convolve_fft
 from photutils.background import Background2D
+
+from clifspy.galaxy import Galaxy
+import clifspy.utils as utils
 
 logger = logging.getLogger("CLIFS_Pipeline")
 
@@ -32,15 +34,17 @@ def subtract_background_galex(img, img_h):
     bkg = Background2D(convolved_data, 50, mask = srcmask, coverage_mask = coverage_mask)
     return convolved_data - bkg.background, bkg.background_rms
 
-def find_cfht_field(coord):
+def find_cfht_field(cid, coord, imin=0):
     ra_cent = ["193.869", "193.869", "193.869", "194.917", "194.926", "194.926", "195.983", "195.983", "195.982"]
     dec_cent = ["27.058", "27.991", "28.925", "27.997", "27.058", "28.925", "27.058", "28.925", "27.990"]
     coord_cent = SkyCoord([float(ra) for ra in ra_cent], [float(dec) for dec in dec_cent], unit = "deg")
-    ind = np.argmin(coord.separation(coord_cent).arcminute)
-    if ra_cent[ind] == "195.982" and dec_cent[ind] == "27.990":
-        return "G008.{}+{}".format(ra_cent[ind], dec_cent[ind])
+    ind = np.argsort(coord.separation(coord_cent).arcminute)
+    #if cid == 5:
+    #    imin = 1
+    if ra_cent[ind[imin]] == "195.982" and dec_cent[ind[imin]] == "27.990":
+        return f"G008.{ra_cent[ind[imin]]}+{dec_cent[ind[imin]]}"
     else:
-        return "G007.{}+{}".format(ra_cent[ind], dec_cent[ind])
+        return f"G007.{ra_cent[ind[imin]]}+{dec_cent[ind[imin]]}"
 
 def find_lofar_field(coord):
     ra_cent = [192.945, 195.856, 195.339]
@@ -99,13 +103,13 @@ def format_output_header(hdr, shape, telescope, filter):
     hdr["FILTER"] = filter
     return hdr
 
-def cutout_from_image(galaxy, telescope, filter):
+def cutout_from_image(galaxy, telescope, filter, clobber=False):
     if galaxy.ra_pnt == -99:
         coord = SkyCoord(galaxy.ra, galaxy.dec, unit = "deg")
     else:
         coord = SkyCoord(galaxy.ra_pnt, galaxy.dec_pnt, unit = "deg")
     if telescope == "cfht":
-        field = find_cfht_field(coord)
+        field = find_cfht_field(galaxy.clifs_id, coord)
         img_path = "/arc/projects/CLIFS/multiwav/{}-{}/{}.{}.fits".format(telescope, filter, field, filter)
     elif telescope == "herschel":
         wav = int(re.search(r'\d+', filter).group())
@@ -117,17 +121,21 @@ def cutout_from_image(galaxy, telescope, filter):
         img_path = "/arc/projects/CLIFS/multiwav/{}-{}/mosaic-blanked-{}.fits".format(telescope, filter, field)
     else:
         raise ValueError("Telescope ({}) is  not supported".format(telescope))
+    outdir = "/arc/projects/CLIFS/multiwav/cutouts/clifs{}".format(galaxy.clifs_id)
+    outfile = Path(f"{outdir}/{telescope}-{filter}.fits")
+    if outfile.is_file() and not clobber:
+        logger.info(f"'{str(outfile)}' found, continuing")
+        return
     hdul = fits.open(img_path)
     img, img_h = hdul[0].data, hdul[0].header
     wcs = WCS(img_h)
     img = units_to_MJysr(img, img_h, telescope, filter)
     img_cut, img_cut_h = utils.sky_cutout_from_image(img, coord, 1.5 * u.arcmin, wcs)
     out_hdr = format_output_header(img_cut_h, img_cut.shape, telescope, filter)
-    outdir = "/arc/projects/CLIFS/multiwav/cutouts/clifs{}".format(galaxy.clifs_id)
     if not os.path.exists(outdir):
         os.makedirs(outdir)
     hdu = fits.PrimaryHDU(data = img_cut, header = out_hdr)
-    hdu.writeto(outdir + "/{}-{}.fits".format(telescope, filter), overwrite = True)
+    hdu.writeto(str(outfile), overwrite=clobber)
     hdul.close()
 
 def make_multiwav_cutouts(galaxy):

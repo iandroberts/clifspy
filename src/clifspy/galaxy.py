@@ -47,7 +47,7 @@ class Galaxy:
 
     def get_maps(self, force_manga=False):
         dap_dir = self.config["files"]["outdir_dap"]
-        find_maps = glob.glob(dap_dir + "/*-MAPS-HYB10-XSLSSP-MASTARSSP.fits*")
+        find_maps = glob.glob(dap_dir + "/*-MAPS-HYB10-*-MASTARSSP.fits*")
         if len(find_maps) == 0:
             return None
         if len(find_maps) == 1:
@@ -60,8 +60,7 @@ class Galaxy:
                 print("Found two MAPS files, assuming WEAVE and MaNGA, proceeding with WEAVE")
                 mapsfile = fits.open([s for s in find_maps if "weave" in s][0])
         else:
-            print("Found more than two MAPS files")
-            sys.exit()
+            raise ValueError(f"Found more than two MAPS files: CLIFS {self.clifs_id}")
         return mapsfile
 
     def get_cube(self, return_ivar=False, return_hdr=False):
@@ -84,11 +83,10 @@ class Galaxy:
             print("Found two LOGCUBE files, assuming WEAVE and MaNGA, proceeding with WEAVE")
             cubefile = fits.open([s for s in find_cube if "weave" in s][0])
         else:
-            print("Found more than two MAPS files")
-            sys.exit()
+            raise ValueError(f"Found more than two CUBE files: CLIFS {self.clifs_id}")
         return cubefile
 
-    def get_eline_map(self, line, map = "GFLUX", return_map=True, return_wcs=False,
+    def get_eline_map(self, line, map="GFLUX", return_map=True, return_wcs=False,
             force_manga=False):
         mapsfile = self.get_maps(force_manga=force_manga)
         if return_wcs and return_map:

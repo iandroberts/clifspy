@@ -1,4 +1,6 @@
 import  os
+import sys
+
 from astropy.stats import sigma_clipped_stats
 from photutils.aperture import SkyEllipticalAperture, EllipticalAperture
 from astropy.coordinates import SkyCoord
@@ -78,7 +80,10 @@ class panel_image:
         return ~mask_im
 
     def optical(self, gax, rgb = False, xlim = None, ylim = None):
-        img, img_h = self.galaxy.get_cutout_image("cfht", "G", header = True)
+        try:
+            img, img_h = self.galaxy.get_cutout_image("cfht", "G", header = True)
+        except FileNotFoundError:
+            return
         x0, y0 = WCS(img_h).celestial.world_to_pixel(self.galaxy.c)
         cd = img_h["PC2_2"]
         r90 = self.galaxy.config["galaxy"]["r90"]
@@ -540,14 +545,14 @@ def reproject_manga_map(data, snr, wcs, wcs_out, shape_out, method = "interp"):
         raise ValueError("'method' must either be 'interp' or 'exact'")
 
 def compare_weave_manga(galaxy, line, fig = None, gax = None, j = None, sn_cut = 4, return_arrays = False):
-    weave_map, weave_wcs = galaxy.get_eline_map(line, return_wcs = True)
-    weave_ivar = galaxy.get_eline_map(line, map = "GFLUX_IVAR")
+    weave_map, weave_wcs = galaxy.get_eline_map(line, return_wcs=True)
+    weave_ivar = galaxy.get_eline_map(line, map="GFLUX_IVAR")
     weave_sn = weave_map * np.sqrt(weave_ivar)
     manga_map, manga_wcs = galaxy.get_eline_map(line, return_wcs=True, force_manga=True)
     manga_ivar = galaxy.get_eline_map(line, map="GFLUX_IVAR", force_manga=True)
     manga_sn = manga_map * np.sqrt(manga_ivar)
     manga_reproj, manga_sn = reproject_manga_map(manga_map, manga_sn, manga_wcs, weave_wcs,
-        weave_map.shape, method = "exact")
+        weave_map.shape, method="exact")
     mask_det = np.greater(weave_sn, sn_cut) & np.greater(manga_sn, sn_cut) & np.greater(weave_map, 0) & np.greater(manga_reproj, 0)
     weave_map[~mask_det] = np.nan
     manga_reproj[~mask_det] = np.nan
@@ -600,7 +605,7 @@ def weave_manga_line_fluxes(galaxy):
     grid = gs.GridSpec(3, 5)
     grid.update(wspace = 0.1, hspace = 0.1)
     for j in range(lines.size):
-        compare_weave_manga(galaxy, lines[j], fig = fig, gax = grid[j], j = j)
+        compare_weave_manga(galaxy, lines[j], fig=fig, gax=grid[j], j=j)
     fig.supxlabel(r"MaNGA:$\quad F_\lambda \;\; \mathrm{[erg\,s^{-1}\,cm^{-2}]}$", fontsize = 10, y = 0.04)
     fig.supylabel(r"WEAVE:$\quad F_\lambda \;\; \mathrm{[erg\,s^{-1}\,cm^{-2}]}$", fontsize = 10, x = 0.05)
     fig.savefig("/arc/projects/CLIFS/plots/manga_comparison/weave_manga_line_fluxes_clifs{}.pdf".format(galaxy.clifs_id), bbox_inches = "tight", pad_inches = 0.03)
@@ -655,7 +660,11 @@ def MaNGA_boundary(galaxy):
     return patch
 
 def fiber_overlay_plot(galaxy, rgb = False, xlim = None, ylim = None, Nr = 2):
-    img, img_h = galaxy.get_cutout_image("cfht", "G", header = True)
+    try:
+        img, img_h = galaxy.get_cutout_image("cfht", "G", header = True)
+    except FileNotFoundError:
+        print("Could not find optical image, cannot make fiber overlay plot")
+        return
     x0, y0 = WCS(img_h).celestial.world_to_pixel(galaxy.c)
     cd = img_h["PC2_2"]
     fig = plt.figure(figsize = (3.0, 3.0))
@@ -733,5 +742,7 @@ def plots_for_clifspipe(galaxy):
     if os.path.isdir(galaxy.config["files"]["outdir_dap"]):
         panel_image(galaxy.clifs_id).make("/arc/projects/CLIFS/plots/panel_images/panel_img_clifs{}".format(galaxy.clifs_id), rgb = True)
         specfit(galaxy)
-        if galaxy.manga: weave_manga_line_fluxes(galaxy)
-        if galaxy.tail: ha_tail_plot(galaxy)
+        if galaxy.manga:
+            weave_manga_line_fluxes(galaxy)
+        if galaxy.tail:
+            ha_tail_plot(galaxy)
