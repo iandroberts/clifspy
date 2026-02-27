@@ -768,7 +768,8 @@ def ha_tail_plot(galaxy):
     norm = ImageNormalize(flux, vmin = galaxy.config["plotting"]["tail"]["vmin"], vmax = galaxy.config["plotting"]["tail"]["vmax"], stretch = SqrtStretch())
     ax.imshow(flux, norm = norm, cmap = "viridis")
     ax.contour(hba, levels = lev_hba, colors = "C1", transform = ax.get_transform(WCS(hba_h)))
-    _plot_r90(galaxy, ax, wcs)
+    if galaxy.r90 > 0 and galaxy.ell > 0 and galaxy.pa >= 0:
+        _plot_r90(galaxy, ax, wcs)
     ax.coords["ra"].set_axislabel("RA")
     ax.coords["dec"].set_axislabel("Dec")
     ax.coords["ra"].set_ticks_position("b")
