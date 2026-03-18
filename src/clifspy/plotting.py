@@ -97,8 +97,6 @@ class panel_image:
             normG = ImageNormalize(img, interval = PercentileInterval(self.galaxy.config["plotting"]["fov"]["g_pct"]), stretch = AsinhStretch(a = 0.05))
             normI = ImageNormalize(imgI, interval = PercentileInterval(self.galaxy.config["plotting"]["fov"]["r_pct"]), stretch = AsinhStretch(a = 0.05))
             rgb_array = np.array([normI(imgI), normG(img), normU(imgU)])
-            print(np.max(rgb_array))
-            print(np.min(rgb_array))
             ax = self.fig.add_subplot(gax, projection = WCS(img_h).celestial)
             if xlim is not None:
                 ax.set_xlim(xlim)
@@ -330,11 +328,12 @@ def specfit(galaxy):
     wave = (wcs.all_pix2world(coo, 1)[:,2] * wcs.wcs.cunit[2].to("angstrom")) * u.AA
     wlum = wave.to(u.um).value
     wave = ((1+1e-6*(287.6155+1.62887/wlum**2+0.01360/wlum**4)) * wave).to(u.AA).value
-    # Mask for ccd gaps
-    lgap_red = [7570, 7695]
+    # Mask for ccd gaps, artifacts
+    lgap_red = [7570, 7697]
     lgap_blue = [5480, 5580]
     mask_gap_red = np.greater(wave, lgap_red[0]) & np.less(wave, lgap_red[1])
     mask_gap_blue = np.greater(wave, lgap_blue[0]) & np.less(wave, lgap_blue[1])
+    mask_artifact = np.greater(wave, 6865) & np.less(wave, 6883)
     x, y = np.round(wcs.celestial.world_to_pixel(galaxy.c)).astype(int)
     vel = galaxy.get_single_map("Ha-6564", map = "GVEL")[y, x]
     spec = flux[:, y, x]
@@ -355,6 +354,7 @@ def specfit(galaxy):
     ## Full spectrum ##
     ax.axvspan(lgap_blue[0], lgap_blue[1], color = "k", lw = 0, alpha = 0.2)
     ax.axvspan(lgap_red[0], lgap_red[1], color = "k", lw = 0, alpha = 0.2)
+    ax.axvspan(6865, 6882, color = "k", lw = 0, alpha = 0.2)
     ax.plot(wave, spec, color = "k", lw = 1.0, drawstyle = "steps")
     ax.plot(wave_model, model_spec, color = "C0", lw = 0.8, drawstyle = "steps")
     ax.set_xlim(3725, 9400)
@@ -490,6 +490,7 @@ def specfit(galaxy):
         mask = np.greater(wave, 6538 * (1 + zgal) * (1 + vel / c)) & np.less(wave, 6744 * (1 + zgal) * (1 + vel / c))
         mask_model = (np.greater(wave_model, 6538 * (1 + zgal) * (1 + vel / c)) &
             np.less(wave_model, 6744 * (1 + zgal) * (1 + vel / c)))
+        ax.axvspan(6865, 6883, color = "k", lw = 0, alpha = 0.2)
     else:
         mask = np.greater(wave, 5800 * (1 + zgal) * (1 + vel / c)) & np.less(wave, 6000 * (1 + zgal) * (1 + vel / c))
         mask_model = (np.greater(wave_model, 5800 * (1 + zgal) * (1 + vel / c)) &

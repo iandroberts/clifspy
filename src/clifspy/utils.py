@@ -322,3 +322,16 @@ def eline_mask(wave, z, medium="air", dv=500, bright_only=False):
             dl = w * (dv / 2.998e+5)
             mask[(wave > w - dl) & (wave < w + dl)] = False
         return mask
+
+def mjysr_to_px(data, cdelt):
+    Apx = cdelt**2
+    data_deg = data / 3282.806
+    return data_deg * Apx
+
+def filter_pivot(fltr):
+    if fltr == "CFHT.I2":
+        return 7542.83
+    elif fltr == "legacy.i":
+        return 7823.84
+    else:
+        raise ValueError("Not implemented yet...")

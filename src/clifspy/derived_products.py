@@ -1,15 +1,21 @@
 from importlib.resources import as_file, files
 from pathlib import Path
+import sys
 
 from astropy.cosmology import FlatLambdaCDM
 from astropy.io import fits
+from astropy.stats import sigma_clipped_stats, SigmaClip
 import astropy.units as u
 from astropy.wcs import WCS
 import bagpipes as pipes
 import numpy as np
 from photutils import aperture
+from photutils.background import MMMBackground
+from reproject import reproject_exact
+from scipy.optimize import curve_fit
+from scipy.stats import norm
 
-from clifspy.utils import eline_lookup, eline_mask
+from clifspy.utils import eline_lookup, eline_mask, mjysr_to_px, filter_pivot
 import clifspy.galaxy
 
 def colour_excess(wav):
@@ -62,13 +68,17 @@ def dered_ha_flux(galaxy, return_fha=False, sncut=3):
 def make_sfr_map(galaxy, cdelt = 1 / 3600, C = 41.27, H0 = 70, Om0 = 0.3):
     # Defaults to calibration from Kennicutt & Evans, but can set your preferred C if needed (log SFR = log L - log C)
     cosmo = FlatLambdaCDM(H0 = H0, Om0 = Om0)
-    Dl = cosmo.luminosity_distance(galaxy.z)
-    scale = cosmo.kpc_proper_per_arcmin(galaxy.z).value * 60
+    Dl = cosmo.luminosity_distance(galaxy.zcoma)
+    scale = cosmo.kpc_proper_per_arcmin(galaxy.zcoma).value * 60
     flux = dered_ha_flux(galaxy, sncut=2)
     lum = (4 * np.pi * Dl ** 2 * flux).cgs.value
     sfr = lum / 10 ** C
     sfr[~np.isfinite(sfr)] = np.nan
     Apx_kpc = (cdelt * scale) ** 2
+    #if galaxy.ell >= 0:
+    #    sigSFR = (sfr / Apx_kpc) * (1 - galaxy.ell)
+    #else:
+    #    sigSFR = sfr / Apx_kpc
     return sfr / Apx_kpc
 
 def write_sfr_map(galaxy, sig_sfr):
@@ -89,6 +99,9 @@ def filter_image(galaxy, fltr, return_hdr=False, write=False):
     resp_interp = np.interp(wave, lam, resp, left=0, right=0)
     resp_3d = resp_interp[:, np.newaxis, np.newaxis]
     f_band = np.trapz(flux * resp_3d, wave, axis=0) / np.trapz(resp_interp, wave)
+    stats = sigma_clipped_stats(f_band, maxiters=None)
+    bkg_value = 2.5 * stats[1] - 1.5 * stats[0]
+    f_band += bkg_value
     if write:
         hdu = fits.PrimaryHDU(data=f_band, header=wcs.celestial.to_header())
         hdu.writeto(galaxy.config["files"]["outdir_products"] + f"/{fltr}.fits",
@@ -106,20 +119,47 @@ def filter_flux_sun(fltr):
     f_band = np.trapz(flux * resp_interp, wave) / np.trapz(resp_interp, wave)
     return f_band
 
-def make_mstar_map(galaxy, a=-0.68, b=0.70, H0=70, Om0=0.3):
-    # Taylor et al. (2011)
+def make_mstar_map(galaxy, a=-0.831, b=0.979, H0=70, Om0=0.3):
+    # Roediger & Corteau (2015)
     cosmo = FlatLambdaCDM(H0=H0, Om0=Om0)
-    Dl = cosmo.luminosity_distance(galaxy.z)
-    scale = cosmo.kpc_proper_per_arcmin(galaxy.z).value * 60
-    fi, hdr = filter_image(galaxy, "SDSS.i", return_hdr=True, write=True)
-    fg = filter_image(galaxy, "SDSS.g", write=True)
-    fi_sun = filter_flux_sun("SDSS.i")
+    Dl = cosmo.luminosity_distance(galaxy.zcoma)
+    scale = cosmo.kpc_proper_per_arcmin(galaxy.zcoma).value * 60
+    dir = "/arc/projects/CLIFS/multiwav/cutouts/clifs{}".format(galaxy.clifs_id)
+    fpath = Path(f"{dir}/cfht-G.fits")
+    if fpath.is_file():
+        fi, hdr = galaxy.get_cutout_image("cfht", "I2", header=True)
+        fg = galaxy.get_cutout_image("cfht", "G")
+        fi_sun = filter_flux_sun("CFHT.I2")
+        piv = filter_pivot("CFHT.I2")
+    else:
+        fi, hdr = galaxy.get_cutout_image("legacy", "i", header=True)
+        fg = galaxy.get_cutout_image("legacy", "g")
+        fi_sun = filter_flux_sun("legacy.i")
+        piv = filter_pivot("legacy.i")
+    wcs_weave = galaxy.get_single_map("Ha-6564", return_map=False, return_wcs=True)
+    hdr_weave = wcs_weave.to_header()
+    cdelt = hdr_weave["CDELT2"]
+    fi = reproject_exact((fi, hdr), wcs_weave, shape_out=wcs_weave.array_shape,
+        return_footprint=False)
+    fg = reproject_exact((fg, hdr), wcs_weave, shape_out=wcs_weave.array_shape,
+        return_footprint=False)
+    fi_sun = 3.34e+4 * piv**2 * fi_sun # convert to Jy
+    fi = 1e+6*mjysr_to_px(fi, cdelt)
+    fg = 1e+6*mjysr_to_px(fg, cdelt)
     MtoL = 10**a * (fg / fi)**(-2.5*b)
-    Li = 4 * np.pi * Dl**2 * (1e-17 * fi * u.erg/u.s/u.cm**2/u.angstrom)
-    Li_sun = 4 * np.pi * (1*u.AU)**2 * (fi_sun * u.erg/u.s/u.cm**2/u.angstrom)
+    Li = 4 * np.pi * Dl**2 * (fi * u.Jy)
+    Li_sun = 4 * np.pi * (1*u.AU)**2 * (fi_sun * u.Jy)
     M = MtoL * (Li.cgs.value / Li_sun.cgs.value)
-    cdelt = hdr["CDELT2"]
+    #mi = -2.5 * np.log10(fi) + 8.9
+    #mg = -2.5 * np.log10(fg) + 8.9
+    #Mi = mi - 5 * np.log10(Dl.to(u.pc).value)
+    #logM = 1.15 * 0.7 * (mg - mi) - 0.4*Mi
+    #M = 10**logM
     Apx_pc = (cdelt * scale * 1000) ** 2
+    #if galaxy.ell >= 0:
+    #    sigM = (M / Apx_pc) * (1 - galaxy.ell)
+    #else:
+    #    sigM = M / Apx_pc
     return M / Apx_pc
 
 def write_mstar_map(galaxy, sig_M):
@@ -128,7 +168,7 @@ def write_mstar_map(galaxy, sig_M):
     hdr["BUNIT"] = ("Msun/pc2", "Unit of the map")
     hdu = fits.PrimaryHDU(data = sig_M, header = hdr)
     Path(galaxy.config["files"]["outdir_products"]).mkdir(parents=True, exist_ok=True)
-    hdu.writeto(galaxy.config["files"]["outdir_products"] + "/sigma_mstar.fits", overwrite=True)
+    hdu.writeto(galaxy.config["files"]["outdir_products"] + "/sigma_mstar_gi.fits", overwrite=True)
 
 def load_spectrum_for_bagpipes(ID):
     cid, x, y = ID.split("_")

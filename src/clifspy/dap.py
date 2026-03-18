@@ -38,7 +38,13 @@ class WEAVEDataCube(DataCube):
         self.file_name = _ifile.name
         # Collect the metadata into a dictionary
         config = toml.load(config_path)
-        meta = config["galaxy"]
+        self.meta = {}
+        self.meta["z"] = config["galaxy"]["z"]
+        self.meta["objra"] = config["galaxy"]["ra"]
+        self.meta["objdec"] = config["galaxy"]["dec"]
+        self.meta["pa"] = config["galaxy"]["pa"]
+        self.meta["ell"] = config["galaxy"]["ell"]
+        self.meta["reff"] = config["galaxy"]["reff"]
         #sres = 2500
         # Open the file and initialize the DataCube base class
         with fits.open(str(_ifile)) as hdu:
@@ -109,7 +115,7 @@ class WEAVEDataCube(DataCube):
         #flux[~np.isfinite(flux)] = 0.0
         # Default name assumes file names like, e.g., '*_icubew.fits'
         super().__init__(flux, ivar=ivar, mask=mask, sres=_sres,
-                         wave=r.outx, meta=meta, prihdr=head_new, wcs=wcs_new,
+                         wave=r.outx, meta=self.meta, prihdr=head_new, wcs=wcs_new,
                          name=_ifile.name.split('_')[0])
 
 def getfwhm(file, nspec_list, wl):

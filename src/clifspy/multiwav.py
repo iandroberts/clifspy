@@ -1,8 +1,10 @@
 from pathlib import Path
 import glob
+import io
 import os
 import logging
 import re
+import requests
 
 from astropy.coordinates import SkyCoord
 from astropy import constants
@@ -86,6 +88,10 @@ def units_to_MJysr(img, img_h, telescope, filter):
         Abm = 2 * np.pi * (img_h["BMIN"] * u.deg) * (img_h["BMAJ"] * u.deg) * gaussian_fwhm_to_sigma ** 2
         Sv = (img * u.Jy) / Abm
         return Sv.to(u.MJy / u.sr).value
+    elif telescope == "legacy":
+        fv = img * 3.631e-6 * u.Jy
+        Sv = fv / (img_h["CD2_2"] * u.deg) ** 2
+        return Sv.to(u.MJy / u.sr).value
     else:
         raise ValueError("Telescope ({}) is  not supported".format(telescope))
 
@@ -103,12 +109,39 @@ def format_output_header(hdr, shape, telescope, filter):
     hdr["FILTER"] = filter
     return hdr
 
+def get_legacy_cutout(filter, coord, s, outfile, pxscale=0.262):
+    Npx = round(s.to(u.arcsec).value / pxscale)
+    url = "https://www.legacysurvey.org/viewer/fits-cutout"
+    params = {
+        "ra": coord.ra.value,
+        "dec": coord.dec.value,
+        "size": Npx,
+        "layer": "ls-dr10",
+        "pixscale": pxscale,
+        "bands": f"{filter}",
+    }
+    r = requests.get(url, params=params, stream=True)
+    px_area_sr = (pxscale * u.arcsec).to(u.rad).value ** 2
+    with fits.open(io.BytesIO(r.content)) as hdul:
+        hdul[0].data *= 3.631e-6   # nanomaggies -> Jy
+        hdul[0].data /= 1e6        # Jy -> MJy
+        hdul[0].data /= px_area_sr # per px -> per sr
+        hdul[0].header['BUNIT'] = 'MJy/sr'
+        hdul.writeto(outfile, overwrite=True)
+
 def cutout_from_image(galaxy, telescope, filter, clobber=False):
+    outdir = "/arc/projects/CLIFS/multiwav/cutouts/clifs{}".format(galaxy.clifs_id)
+    outfile = Path(f"{outdir}/{telescope}-{filter}.fits")
+
     if galaxy.ra_pnt == -99:
         coord = SkyCoord(galaxy.ra, galaxy.dec, unit = "deg")
     else:
         coord = SkyCoord(galaxy.ra_pnt, galaxy.dec_pnt, unit = "deg")
-    if telescope == "cfht":
+
+    if telescope == "legacy":
+        get_legacy_cutout(filter, coord, 1.5*u.arcmin, str(outfile))
+        return
+    elif telescope == "cfht":
         field = find_cfht_field(galaxy.clifs_id, coord)
         img_path = "/arc/projects/CLIFS/multiwav/{}-{}/{}.{}.fits".format(telescope, filter, field, filter)
     elif telescope == "herschel":
@@ -121,8 +154,7 @@ def cutout_from_image(galaxy, telescope, filter, clobber=False):
         img_path = "/arc/projects/CLIFS/multiwav/{}-{}/mosaic-blanked-{}.fits".format(telescope, filter, field)
     else:
         raise ValueError("Telescope ({}) is  not supported".format(telescope))
-    outdir = "/arc/projects/CLIFS/multiwav/cutouts/clifs{}".format(galaxy.clifs_id)
-    outfile = Path(f"{outdir}/{telescope}-{filter}.fits")
+
     if outfile.is_file() and not clobber:
         logger.info(f"'{str(outfile)}' found, continuing")
         return
@@ -141,6 +173,7 @@ def cutout_from_image(galaxy, telescope, filter, clobber=False):
 def make_multiwav_cutouts(galaxy):
     all_filters = {
                    "galex": ["fuv", "nuv"],
+                   "legacy": ["g", "r", "i", "z"],
                    "cfht": ["U", "G", "I2"],
                    "herschel": ["pacs100", "pacs160", "spire250", "spire350", "spire500"],
                    "lofar": ["hba"],

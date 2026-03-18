@@ -1,5 +1,7 @@
 import glob
+from pathlib import Path
 import sys
+
 from astropy.io import fits
 import astropy.units as u
 from astropy.wcs import WCS
@@ -22,10 +24,12 @@ class Galaxy:
         self.ra = self.config["galaxy"]["ra"]
         self.dec = self.config["galaxy"]["dec"]
         self.z = self.config["galaxy"]["z"]
+        self.zcoma = 0.024
         self.c = SkyCoord(ra = self.ra, dec = self.dec, unit = "deg")
         self.reff = self.config["galaxy"]["reff"] * u.arcsec
         self.ell = self.config["galaxy"]["ell"]
         self.pa = self.config["galaxy"]["pa"] * u.deg
+        self.r50 = self.config["galaxy"]["reff"] * u.arcsec
         self.r90 = self.config["galaxy"]["r90"] * u.arcsec
         self.manga = self.config["data_coverage"]["manga"]
         self.weave = self.config["data_coverage"]["weave"]
@@ -37,6 +41,8 @@ class Galaxy:
         self.cosmo = cosmology.FlatLambdaCDM(H0=70, Om0=0.3)
         self.sfr_gswlc = clifs_cat[clifs_cat["clifs_id"] == self.clifs_id]["sfr_gswlc2"][0]
         self.sfr_gswlc_err = clifs_cat[clifs_cat["clifs_id"] == self.clifs_id]["sfr_e_gswlc2"][0]
+        self.mstar_gswlc = clifs_cat[clifs_cat["clifs_id"] == self.clifs_id]["mstar_gswlc2"][0]
+        self.mstar_gswlc_err = clifs_cat[clifs_cat["clifs_id"] == self.clifs_id]["mstar_e_gswlc2"][0]
         if self.manga:
             self.plateifu = clifs_cat[clifs_cat["clifs_id"] == self.clifs_id]["plateifu"][0]
             self.manga_Nfib = int(manga_cat[manga_cat["plateifu"] == self.plateifu]["ifudesignsize"])
@@ -53,7 +59,7 @@ class Galaxy:
         if len(find_maps) == 1:
             mapsfile = fits.open(find_maps[0])
         elif len(find_maps) == 2:
-            if force_manga:
+            if force_manga or not self.weave_obs:
                 print("Found two MAPS files, assuming WEAVE and MaNGA, proceeding with MaNGA")
                 mapsfile = fits.open([s for s in find_maps if "manga" in s][0])
             else:
@@ -125,17 +131,34 @@ class Galaxy:
         return wave.value, flux[:, y, x], ivar[:, y, x]
 
     def get_sfr_map(self, return_header=False):
-        return fits.getdata(self.config["files"]["outdir_products"] + "/sigma_sfr_ha.fits", header=return_header)
+        return fits.getdata(
+            self.config["files"]["outdir_products"] + "/sigma_sfr_ha.fits",
+            header=return_header,
+        )
 
-    def get_ifu_total_sfr(self, calculate_error=False, Nboot=1000):
+    def get_mstar_map(self, stem, return_header=False):
+        fpath = Path(self.config["files"]["outdir_products"] + f"/sigma_mstar_{stem}.fits")
+        if fpath.is_file():
+            return fits.getdata(
+                str(fpath),
+                header=return_header,
+            )
+        else:
+            return None
+
+    def get_ifu_total_sfr(self, Nre=None, calculate_error=False, Nboot=1000):
         sigsfr, sigsfr_h = self.get_sfr_map(return_header=True)
-        kpc2_per_pixel = (self.cosmo.kpc_proper_per_arcmin(self.z).value * sigsfr_h["PC2_2"] * 60) ** 2
+        kpc2_per_pixel = (self.cosmo.kpc_proper_per_arcmin(self.zcoma).value * sigsfr_h["PC2_2"] * 60) ** 2
         sfr = sigsfr * kpc2_per_pixel
-        aper_sky = aperture.SkyEllipticalAperture(self.c, 1.5*self.reff, 1.5*self.reff*(1-self.ell), theta=self.pa)
-        aper_px = aper_sky.to_pixel(WCS(sigsfr_h))
-        aper_mask = aper_px.to_mask()
-        sfr_masked = aper_mask.multiply(sfr)
-        sfr_flat = sfr_masked[sfr_masked > 0]
+        if Nre is not None:
+            aper_sky = aperture.SkyEllipticalAperture(self.c, Nre * self.reff,
+                Nre * self.reff * (1-self.ell), theta=self.pa)
+            aper_px = aper_sky.to_pixel(WCS(sigsfr_h))
+            aper_mask = aper_px.to_mask()
+            sfr_masked = aper_mask.multiply(sfr)
+            sfr_flat = sfr_masked[sfr_masked > 0]
+        else:
+            sfr_flat = sfr[sfr > 0]
         if calculate_error:
             sfr_boot = np.zeros(Nboot)
             for n in range(Nboot):
@@ -143,6 +166,33 @@ class Galaxy:
                 sfr_boot[n] = np.log10(np.nansum(sfr_flat[ind]))
             return np.log10(np.nansum(sfr_flat)), np.nanstd(sfr_boot)
         return np.log10(np.nansum(sfr_masked))
+
+    def get_ifu_total_mstar(self, stem, Nre=None, calculate_error=False, Nboot=1000):
+        res = self.get_mstar_map(stem, return_header=True)
+        if res is None and calculate_error:
+            return np.nan, np.nan
+        elif res is None:
+            return np.nan
+        else:
+            sig, sig_h = res
+        pc2_per_pixel = (1000*self.cosmo.kpc_proper_per_arcmin(self.zcoma).value * sig_h["PC2_2"] * 60) ** 2
+        mstar = sig * pc2_per_pixel
+        if Nre is not None:
+            aper_sky = aperture.SkyEllipticalAperture(self.c, Nre * self.reff,
+                Nre * self.reff * (1-self.ell), theta=self.pa)
+            aper_px = aper_sky.to_pixel(WCS(sig_h))
+            aper_mask = aper_px.to_mask()
+            mstar_masked = aper_mask.multiply(mstar)
+            mstar_flat = mstar_masked[mstar_masked > 0]
+        else:
+            mstar_flat = mstar[mstar > 0]
+        if calculate_error:
+            mstar_boot = np.zeros(Nboot)
+            for n in range(Nboot):
+                ind = np.random.choice(np.arange(mstar_flat.size), size=mstar_flat.size, replace=True)
+                mstar_boot[n] = np.log10(np.nansum(mstar_flat[ind]))
+            return np.log10(np.nansum(mstar_flat)), np.nanstd(mstar_boot)
+        return np.log10(np.nansum(mstar_masked))
 
 class ControlGalaxy:
     def __init__(self, plateifu):
@@ -164,6 +214,8 @@ class ControlGalaxy:
         self.cosmo = cosmology.FlatLambdaCDM(H0=70, Om0=0.3)
         self.sfr_gswlc = control_cat[control_cat["plateifu"] == self.plateifu]["sfr_gswlc2"][0]
         self.sfr_gswlc_err = control_cat[control_cat["plateifu"] == self.plateifu]["sfr_e_gswlc2"][0]
+        self.mstar_gswlc = control_cat[control_cat["plateifu"] == self.plateifu]["mstar_gswlc2"][0]
+        self.mstar_gswlc_err = control_cat[control_cat["plateifu"] == self.plateifu]["mstar_e_gswlc2"][0]
         self.manga_Nfib = int(manga_cat[manga_cat["plateifu"] == self.plateifu]["ifudesignsize"])
 
     def get_maps(self):
@@ -189,14 +241,28 @@ class ControlGalaxy:
             sys.exit()
         return cubefile
 
-    def get_eline_map(self, line, map = "GFLUX", return_map = True, return_wcs = False):
+    def get_single_map(self, line=None, map = "GFLUX", return_map = True, return_wcs = False):
         mapsfile = self.get_maps()
-        if return_wcs and return_map:
-            return mapsfile["EMLINE_{}".format(map)].data[eline_lookup(line)], WCS(mapsfile["EMLINE_GFLUX"].header).celestial
-        elif return_map:
-            return mapsfile["EMLINE_{}".format(map)].data[eline_lookup(line)]
+        if line is not None:
+            if return_wcs and return_map:
+                return (
+                    mapsfile[f"EMLINE_{map}"].data[eline_lookup(line)],
+                    WCS(mapsfile["EMLINE_GFLUX"].header).celestial,
+                )
+            elif return_map:
+                return mapsfile[f"EMLINE_{map}"].data[eline_lookup(line)]
+            else:
+                return WCS(mapsfile["EMLINE_GFLUX"].header).celestial
         else:
-            return WCS(mapsfile["EMLINE_GFLUX"].header).celestial
+            if return_wcs and return_map:
+                return (
+                    mapsfile[f"{map}"].data,
+                    WCS(mapsfile["EMLINE_GFLUX"].header).celestial,
+                )
+            elif return_map:
+                return mapsfile[f"{map}"].data
+            else:
+                return WCS(mapsfile["EMLINE_GFLUX"].header).celestial
 
     def get_spectrum(self, x, y):
         data_cube = fits.open(self.config["files"]["cube_sci"])
@@ -213,15 +279,29 @@ class ControlGalaxy:
     def get_sfr_map(self, return_header=False):
         return fits.getdata(self.config["files"]["outdir_products"] + "/sigma_sfr_ha.fits", header=return_header)
 
-    def get_ifu_total_sfr(self, calculate_error=False, Nboot=1000):
+    def get_mstar_map(self, stem, return_header=False):
+        fpath = Path(self.config["files"]["outdir_products"] + f"/sigma_mstar_{stem}.fits")
+        if fpath.is_file():
+            return fits.getdata(
+                str(fpath),
+                header=return_header,
+            )
+        else:
+            return None
+
+    def get_ifu_total_sfr(self, Nre=None, calculate_error=False, Nboot=1000):
         sigsfr, sigsfr_h = self.get_sfr_map(return_header=True)
         kpc2_per_pixel = (self.cosmo.kpc_proper_per_arcmin(self.z).value * sigsfr_h["PC2_2"] * 60) ** 2
         sfr = sigsfr * kpc2_per_pixel
-        aper_sky = aperture.SkyEllipticalAperture(self.c, 1.5*self.reff, 1.5*self.reff*(1-self.ell), theta=self.pa)
-        aper_px = aper_sky.to_pixel(WCS(sigsfr_h))
-        aper_mask = aper_px.to_mask()
-        sfr_masked = aper_mask.multiply(sfr)
-        sfr_flat = sfr_masked[sfr_masked > 0]
+        if Nre is not None:
+            aper_sky = aperture.SkyEllipticalAperture(self.c, Nre * self.reff,
+                Nre * self.reff * (1-self.ell), theta=self.pa)
+            aper_px = aper_sky.to_pixel(WCS(sigsfr_h))
+            aper_mask = aper_px.to_mask()
+            sfr_masked = aper_mask.multiply(sfr)
+            sfr_flat = sfr_masked[sfr_masked > 0]
+        else:
+            sfr_flat = sfr[sfr > 0]
         if calculate_error:
             sfr_boot = np.zeros(Nboot)
             for n in range(Nboot):
@@ -229,3 +309,30 @@ class ControlGalaxy:
                 sfr_boot[n] = np.log10(np.nansum(sfr_flat[ind]))
             return np.log10(np.nansum(sfr_flat)), np.nanstd(sfr_boot)
         return np.log10(np.nansum(sfr_masked))
+
+    def get_ifu_total_mstar(self, stem, Nre=None, calculate_error=False, Nboot=1000):
+        res = self.get_mstar_map(stem, return_header=True)
+        if res is None and calculate_error:
+            return np.nan, np.nan
+        elif res is None:
+            return np.nan
+        else:
+            sig, sig_h = res
+        pc2_per_pixel = (1000*self.cosmo.kpc_proper_per_arcmin(self.z).value * sig_h["PC2_2"] * 60) ** 2
+        mstar = sig * pc2_per_pixel
+        if Nre is not None:
+            aper_sky = aperture.SkyEllipticalAperture(self.c, Nre * self.reff,
+                Nre * self.reff * (1-self.ell), theta=self.pa)
+            aper_px = aper_sky.to_pixel(WCS(sig_h))
+            aper_mask = aper_px.to_mask()
+            mstar_masked = aper_mask.multiply(mstar)
+            mstar_flat = mstar_masked[mstar_masked > 0]
+        else:
+            mstar_flat = mstar[mstar > 0]
+        if calculate_error:
+            mstar_boot = np.zeros(Nboot)
+            for n in range(Nboot):
+                ind = np.random.choice(np.arange(mstar_flat.size), size=mstar_flat.size, replace=True)
+                mstar_boot[n] = np.log10(np.nansum(mstar_flat[ind]))
+            return np.log10(np.nansum(mstar_flat)), np.nanstd(mstar_boot)
+        return np.log10(np.nansum(mstar_masked))
