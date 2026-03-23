@@ -1,0 +1,71 @@
+[galaxy]
+name = "NGC4819"
+clifs_id = 4
+ra = 1.941161e+02
+dec = 2.69874e+01
+z = 0.02150
+ell = 0.210
+reff = 1.048e+01
+pa = 1.352e+02
+r90 = 2.752e+01
+
+[data_coverage]
+manga = false
+weave = true
+aca = false
+iram = true
+
+[cube]
+xmin = -99
+xmax = -99
+ymin = -99
+ymax = -99
+
+[files]
+dap_config = "/arc/projects/CLIFS/config_files/weave_xsl.toml"
+cube_blue  = "/arc/projects/CLIFS/cubes/clifs/clifs4/weave/stackcube_3134512.fit"
+cube_red   = "/arc/projects/CLIFS/cubes/clifs/clifs4/weave/stackcube_3134511.fit"
+outdir = "/arc/projects/CLIFS/cubes/clifs/clifs4/weave"
+outdir_dap = "/arc/projects/CLIFS/dap_output/clifs/clifs4"
+cube_sci = "/arc/projects/CLIFS/cubes/clifs/clifs4/weave/calibrated_cube.fits"
+outdir_products = "/arc/projects/CLIFS/derived_products/clifs/clifs4"
+lsf_blue = "/arc/projects/CLIFS/cubes/clifs/clifs8/weave/lsf_BLUEL11_LIFU.fits"
+lsf_red = "/arc/projects/CLIFS/cubes/clifs/clifs8/weave/lsf_REDL11_LIFU.fits"
+
+[pipeline]
+bkgsub = false
+bkgsub_galmask = true
+downsample_spatial = true
+factor_spatial = 2
+downsample_wav = true
+fill_ccd_gaps = false
+fix_astrometry = false
+hdf5 = true
+verbose = false
+clobber = true
+fill_holes = false
+
+[plotting]
+panel.Nr90 = 1.2
+panel.sn_min = [1, 2]
+panel.sn_max = [32, 30]
+panel.v_star_min = [-200, -150]
+panel.v_star_max = [200, 150]
+panel.vdisp_star_min = [0, 10]
+panel.vdisp_star_max = [150, 125]
+panel.dn4000_min = [1.0, 1.1]
+panel.dn4000_max = [2.0, 1.9]
+panel.flux_ha_min = [0, 3]
+panel.flux_ha_max = [15, 12]
+panel.v_ha_min = [-200, -150]
+panel.v_ha_max = [200, 150]
+
+fov.b_pct = 99.9
+fov.g_pct = 99.8
+fov.r_pct = 99.7
+fov.asinh_a = 0.01
+
+specfit.eline_labels = true
+specfit.absline_labels = false
+specfit.inset = false
+specfit.inset_ylim = [1.3, 4.0]

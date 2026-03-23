@@ -1,0 +1,103 @@
+
+# ------------------------------------------------------------------------------
+# Plan names
+# ------------------------------------------------------------------------------
+
+[plan3]
+# key = 'HYB10-MILESHC-MASTARSSP'
+ key = 'HYB10-XSLSSP-MASTARSSP'
+ 
+
+# ------------------------------------------------------------------------------
+# Reduction assessment
+# ------------------------------------------------------------------------------
+
+[plan3.rdxqa]
+ #response_func_file = 'gunn_2001_g_response.db'
+ waverange = [4000.0, 5500.0]
+ response_func_file = 'none'
+
+# ------------------------------------------------------------------------------
+# Binning
+# ------------------------------------------------------------------------------
+
+[plan3.binning]
+ key = 'HYB10'
+ minimum_snr    = 1.0
+ spatial_method = 'voronoi'
+
+[plan3.binning.spatial]
+ target_snr = 10
+ covar_mode = 'calibrate'
+ covar_par = 0.9
+
+# ------------------------------------------------------------------------------
+# Continuum
+# ------------------------------------------------------------------------------
+
+[plan3.continuum]
+ key                    = 'XSLSSP'
+ minimum_snr            = 1.0
+ fit_method             = 'ppxf'
+
+[plan3.continuum.fit]
+ artifact_mask          = 'BADSKY'
+ emission_line_mask     = 'ELPSCMSK'
+ velscale_ratio         = 7
+
+[plan3.continuum.fit.templates]
+ key              = 'XSLSSP'
+ file_search      = '/arc/projects/CLIFS/xshoot_stellar_templates/*.fits'
+ fwhm             = 0.52
+ in_vacuum        = false
+ wave_limit       = [3000, 10000]
+ log10            = true
+
+# ------------------------------------------------------------------------------
+# Emission-line Moments
+# ------------------------------------------------------------------------------
+
+[plan3.eline_moments]
+ key                = 'EMOM'
+ artifact_mask      = 'BADSKY'
+
+
+# ------------------------------------------------------------------------------
+# Emission-line Gaussian Fitting
+# ------------------------------------------------------------------------------
+
+[plan3.eline_fits]
+ key                  = 'EFITSSPDB'
+ fit_method           = 'sasuke'
+ minimum_snr          = -3.0
+
+[plan3.eline_fits.fit]
+ emission_lines       = 'ELPMPL11'
+ etpl_line_sigma_mode = 'offset'
+ etpl_line_sigma_min  = 10
+ artifact_mask        = 'BADSKY'
+ deconstruct_bins     = 'binid'
+ reject_boxcar        = 201
+ velscale_ratio       = 7
+ mdegree              = 14
+
+[plan3.eline_fits.fit.templates]
+# key              = 'MASTARSSP'
+ key              = 'XSLSSP'
+ file_search      = '/arc/projects/CLIFS/xshoot_stellar_templates/*.fits'
+ fwhm             = 0.52
+ in_vacuum        = false
+ wave_limit       = [3000, 10000]
+ log10            = true
+
+# ------------------------------------------------------------------------------
+# Spectral Indices
+# ------------------------------------------------------------------------------
+
+[plan3.indices]
+ key                      = 'INDXEN'
+ artifact_mask            = 'BADSKY'
+
+
+
+

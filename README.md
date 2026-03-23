@@ -17,6 +17,7 @@ The standard pipeline run includes the following analysis steps:
 - Make integrated CO spectrum (optional, IRAM or ALMA)
 
 ### MaNGA Data Analysis Pipeline
+This module makes use of the [MaNGA data analysis pipeline](https://sdss-mangadap.readthedocs.io/en/latest/) ([Westfall et al. 2019](https://ui.adsabs.harvard.edu/abs/2019AJ....158..231W/abstract))
 - Push the calibrated WEAVE data cubes through the MaNGA data analysis pipeline (DAP)
 - Custom class in order to format the WEAVE data suitably for entry into the MaNGA DAP
 - DAP performs full spectral fitting, outputs maps of: stellar kinematics, emission line flux, gas kinematics, absorption line indices, etc.
