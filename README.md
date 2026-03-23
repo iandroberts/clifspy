@@ -10,3 +10,8 @@ The standard pipeline run includes the following analysis steps:
 - Background subtraction (optional)
 - Combine blue and red level 1 cubes
 - Fix WCS (optional)
+
+## Multi-wavelength
+- Make multi-wavelength cutout images from available ancillary data
+- Currently supported: GALEX, DESI Legacy, CFHT, Herschel, LOFAR
+- Make integrated CO spectrum (optional, IRAM or ALMA)
