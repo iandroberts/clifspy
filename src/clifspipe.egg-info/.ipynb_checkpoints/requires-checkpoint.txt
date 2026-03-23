@@ -1,9 +1,0 @@
-astropy
-numpy
-spectral-cube
-toml
-matplotlib
-tqdm
-photutils
-pathlib
-sdss-mangadap

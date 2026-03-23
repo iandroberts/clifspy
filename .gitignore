@@ -1,0 +1,10 @@
+# .gitignore
+__pycache__/
+*.pyc
+*.pyo
+build/
+dist/
+*.egg-info/
+*.pdf
+*.save
+.eggs/
