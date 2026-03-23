@@ -59,6 +59,9 @@ def format_preprocess_output_header(galaxy, head_in, shape, wcs, w0, dw, fullfie
     head_new["NAXIS1"] = shape[2]
     head_new["NAXIS2"] = shape[1]
     head_new["NAXIS3"] = shape[0]
+    if "PC2_2" not in head_new:
+        head_new["PC1_1"] = head_new["CDELT1"]
+        head_new["PC2_2"] = head_new["CDELT2"]
     head_new["PC3_3"] = (dw * 1e-10, "Coordinate transformation matrix element")
     head_new["CDELT1"] = (1., "[deg] Coordinate increment at reference point")
     head_new["CDELT2"] = (1., "[deg] Coordinate increment at reference point")
