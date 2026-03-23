@@ -5,5 +5,4 @@ toml
 matplotlib
 tqdm
 photutils
-pathlib
 sdss-mangadap

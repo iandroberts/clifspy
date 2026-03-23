@@ -31,3 +31,7 @@ clifspipe = "clifspy.clifspipe:main"
 [project.urls]
 Homepage = "https://github.com/iandroberts/clifspy"
 Issues = "https://github.com/iandroberts/clifspy/issues"
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"

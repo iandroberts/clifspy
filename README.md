@@ -56,3 +56,6 @@ The pipeline expects to find two configuration files in a `config_files` directo
 - `tqdm`
 
 ## Installation
+```
+pip install clifspy
+```
