@@ -15,3 +15,16 @@ The standard pipeline run includes the following analysis steps:
 - Make multi-wavelength cutout images from available ancillary data
 - Currently supported: GALEX, DESI Legacy, CFHT, Herschel, LOFAR
 - Make integrated CO spectrum (optional, IRAM or ALMA)
+
+## MaNGA Data Analysis Pipeline
+- Push the calibrated WEAVE data cubes through the MaNGA data analysis pipeline (DAP)
+- Custom class in order to format the WEAVE data suitably for entry into the MaNGA DAP
+- DAP performs full spectral fitting, outputs maps of: stellar kinematics, emission line flux, gas kinematics, absorption line indices, etc.
+
+## Products
+- Creates value-added products outside of what is produced by the MaNGA DAP
+- Currently includes star formation rate and stellar mass maps
+- More to be added...
+
+## Plotting
+- Creates diagnostic plots to evaluate the performance of the MaNGA DAP run
