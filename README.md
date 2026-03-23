@@ -38,3 +38,8 @@ It can also be used in a modular fashion, for example to only run the initial da
 ```
 clifspipe $clifs_id --process_cube
 ```
+Or to just run the MaNGA DAP and make the diagnostic plots:
+```
+clifspipe $clifs_id --manga_dap --make_plots
+```
+The pipeline expects to find two configuration files in a `config_files` directory.  One, `clifs_{$clifs_id}.toml` that sets various options and file paths for the pipeline run, and a second configuration file for the MaNGA DAP, the filename of which is set in the CLIFS ID configuration file. Examples of both files can be found in `examples/`
