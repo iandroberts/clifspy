@@ -22,7 +22,6 @@ dependencies = [
     "matplotlib",
     "tqdm",
     "photutils",
-    "pathlib",
     "sdss-mangadap",
 ]
 
