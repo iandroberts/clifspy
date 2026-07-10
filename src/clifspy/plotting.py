@@ -93,9 +93,12 @@ class panel_image:
         if rgb:
             imgU, imgU_h = self.galaxy.get_cutout_image("cfht", "U", header = True)
             imgI, imgI_h = self.galaxy.get_cutout_image("cfht", "I2", header = True)
-            normU = ImageNormalize(imgU, interval = PercentileInterval(self.galaxy.config["plotting"]["fov"]["b_pct"]), stretch = AsinhStretch(a = 0.05))
-            normG = ImageNormalize(img, interval = PercentileInterval(self.galaxy.config["plotting"]["fov"]["g_pct"]), stretch = AsinhStretch(a = 0.05))
-            normI = ImageNormalize(imgI, interval = PercentileInterval(self.galaxy.config["plotting"]["fov"]["r_pct"]), stretch = AsinhStretch(a = 0.05))
+            normU = ImageNormalize(imgU, interval = PercentileInterval(self.galaxy.config["plotting"]["fov"]["b_pct"]),
+                stretch=AsinhStretch(a=self.galaxy.config["plotting"]["fov"]["asinh_a"]))
+            normG = ImageNormalize(img, interval = PercentileInterval(self.galaxy.config["plotting"]["fov"]["g_pct"]),
+                stretch=AsinhStretch(a=self.galaxy.config["plotting"]["fov"]["asinh_a"]))
+            normI = ImageNormalize(imgI, interval = PercentileInterval(self.galaxy.config["plotting"]["fov"]["r_pct"]),
+                stretch=AsinhStretch(a=self.galaxy.config["plotting"]["fov"]["asinh_a"]))
             rgb_array = np.array([normI(imgI), normG(img), normU(imgU)])
             ax = self.fig.add_subplot(gax, projection = WCS(img_h).celestial)
             if xlim is not None:
@@ -719,9 +722,12 @@ def fiber_overlay_plot(galaxy, rgb = False, xlim = None, ylim = None, Nr = 2):
     if rgb:
         imgU, imgU_h = galaxy.get_cutout_image("cfht", "U", header = True)
         imgI, imgI_h = galaxy.get_cutout_image("cfht", "I2", header = True)
-        normU = ImageNormalize(imgU, interval = PercentileInterval(galaxy.config["plotting"]["fov"]["b_pct"]), stretch = AsinhStretch(a = galaxy.config["plotting"]["fov"]["asinh_a"]))
-        normG = ImageNormalize(img, interval = PercentileInterval(galaxy.config["plotting"]["fov"]["g_pct"]), stretch = AsinhStretch(a = galaxy.config["plotting"]["fov"]["asinh_a"]))
-        normI = ImageNormalize(imgI, interval = PercentileInterval(galaxy.config["plotting"]["fov"]["r_pct"]), stretch = AsinhStretch(a = galaxy.config["plotting"]["fov"]["asinh_a"]))
+        normU = ImageNormalize(imgU, interval=PercentileInterval(galaxy.config["plotting"]["fov"]["b_pct"]),
+            stretch=AsinhStretch(a=galaxy.config["plotting"]["fov"]["asinh_a"]))
+        normG = ImageNormalize(img, interval=PercentileInterval(galaxy.config["plotting"]["fov"]["g_pct"]),
+            stretch=AsinhStretch(a=galaxy.config["plotting"]["fov"]["asinh_a"]))
+        normI = ImageNormalize(imgI, interval=PercentileInterval(galaxy.config["plotting"]["fov"]["r_pct"]),
+            stretch=AsinhStretch(a=galaxy.config["plotting"]["fov"]["asinh_a"]))
         rgb_array = np.array([normI(imgI), normG(img), normU(imgU)])
         if xlim is not None:
             ax.set_xlim(xlim)

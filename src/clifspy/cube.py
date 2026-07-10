@@ -39,11 +39,11 @@ def _ivar_sum(arr, axis):
 def _standard_err_mean(arr, axis):
     return np.nanmean(arr, axis = axis) / np.sqrt(2)
 
-def crop_cube(galaxy, data, ivar):
-    xmin_py = galaxy.config["cube"]["xmin"]
-    xmax_py = galaxy.config["cube"]["xmax"]
-    ymin_py = galaxy.config["cube"]["ymin"]
-    ymax_py = galaxy.config["cube"]["ymax"]
+def crop_cube(config, data, ivar):
+    xmin_py = config["cube"]["xmin"]
+    xmax_py = config["cube"]["xmax"]
+    ymin_py = config["cube"]["ymin"]
+    ymax_py = config["cube"]["ymax"]
     data = data[:, ymin_py:ymax_py+1, xmin_py:xmax_py+1]
     ivar = ivar[:, ymin_py:ymax_py+1, xmin_py:xmax_py+1]
     return data, ivar
@@ -53,7 +53,7 @@ def fibre_to_pixel_flux_conversion(data, ivar, cdelt):
     Apx = (3600 * cdelt) ** 2
     return data / ((Afibre / Apx) * 1e-17), ivar / ((Apx / Afibre) ** 2 * 1e34)
 
-def format_preprocess_output_header(galaxy, head_in, shape, wcs, w0, dw, fullfield, maptype):
+def format_preprocess_output_header(config, head_in, shape, wcs, w0, dw, fullfield, maptype):
     head_new = wcs.to_header()
     head_new["NAXIS"] = (3, "Number of array dimensions")
     head_new["NAXIS1"] = shape[2]
@@ -69,8 +69,8 @@ def format_preprocess_output_header(galaxy, head_in, shape, wcs, w0, dw, fullfie
     head_new["CRVAL3"] = (w0 * 1e-10, "[m] Coordinate value at reference point")
     head_new["CTYPE3"] = ("AWAV", "Air wavelength")
     if not fullfield:
-        head_new["CRPIX1"] = (head_in["CRPIX1"] - galaxy.config["cube"]["xmin"], "Pixel coordinate of reference point")
-        head_new["CRPIX2"] = (head_in["CRPIX2"] - galaxy.config["cube"]["ymin"], "Pixel coordinate of reference point")
+        head_new["CRPIX1"] = (head_in["CRPIX1"] - config["cube"]["xmin"], "Pixel coordinate of reference point")
+        head_new["CRPIX2"] = (head_in["CRPIX2"] - config["cube"]["ymin"], "Pixel coordinate of reference point")
     else:
         head_new["CRPIX1"] = (head_in["CRPIX1"], "Pixel coordinate of reference point")
         head_new["CRPIX2"] = (head_in["CRPIX2"], "Pixel coordinate of reference point")
@@ -93,7 +93,7 @@ def write_preprocessed_cube(fname, hdul, data, ivar, data_h, ivar_h):
     hdul_out.close()
     return name_split + "_cal.fit"
 
-def preprocess_cube(galaxy, fname, hdul, arm, ext_data=1, ext_ivar=2):
+def preprocess_cube(config, fname, hdul, arm, ext_data=1, ext_ivar=2):
     try:
         cal_data = hdul[ext_data].data * hdul["RED_SENSFUNC"].data[:, None, None]
         cal_ivar = hdul[ext_ivar].data * (1 / hdul["RED_SENSFUNC"].data[:, None, None] ** 2)
@@ -107,17 +107,17 @@ def preprocess_cube(galaxy, fname, hdul, arm, ext_data=1, ext_ivar=2):
         cdelt = hdul[ext_data].header["CDELT2"]
     wave_orig = utils.spectral_axis_from_wcs(wcs, cal_data.shape[0])
     cal_data, cal_ivar = fibre_to_pixel_flux_conversion(cal_data, cal_ivar, cdelt)
-    if galaxy.config["cube"]["xmin"] == -99:
+    if config["cube"]["xmin"] == -99:
         fullfield = True
-    elif galaxy.config["cube"]["xmin"] >= 0:
+    elif config["cube"]["xmin"] >= 0:
         fullfield = False
     else:
         raise ValueError("xmin should either = -99 or be >= 0")
-    if galaxy.config["pipeline"]["bkgsub"]:
+    if config["pipeline"]["bkgsub"]:
         cal_data = bkg_sub(galaxy, cal_data, wave_orig, wcs)
     if not fullfield:
         cal_data, cal_ivar = crop_cube(galaxy, cal_data, cal_ivar)
-    if galaxy.config["pipeline"]["downsample_wav"]:
+    if config["pipeline"]["downsample_wav"]:
         wave, cal_data = downsample_wav_axis(wave_orig, cal_data, "flux", return_wave = True)
         cal_ivar = downsample_wav_axis(wave_orig, cal_ivar, "ivar")
     else:
