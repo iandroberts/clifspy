@@ -22,6 +22,7 @@ import logging
 import subprocess
 import argparse
 import time
+from pathlib import Path
 
 logger = logging.getLogger("CLIFS_Pipeline")
 
@@ -113,29 +114,18 @@ def preprocess_cube(config, fname, hdul, arm, ext_data=1, ext_ivar=2):
         fullfield = False
     else:
         raise ValueError("xmin should either = -99 or be >= 0")
-    if config["pipeline"]["bkgsub"]:
-        cal_data = bkg_sub(galaxy, cal_data, wave_orig, wcs)
     if not fullfield:
-        cal_data, cal_ivar = crop_cube(galaxy, cal_data, cal_ivar)
+        cal_data, cal_ivar = crop_cube(config, cal_data, cal_ivar)
     if config["pipeline"]["downsample_wav"]:
         wave, cal_data = downsample_wav_axis(wave_orig, cal_data, "flux", return_wave = True)
         cal_ivar = downsample_wav_axis(wave_orig, cal_ivar, "ivar")
     else:
         wave = wave_orig.copy()
     dwave = np.median(np.diff(wave))
-    head_new_flux = format_preprocess_output_header(galaxy, hdul[ext_data].header, cal_data.shape, wcs, wave[0], dwave, fullfield, "flux")
-    head_new_ivar = format_preprocess_output_header(galaxy, hdul[ext_data].header, cal_data.shape, wcs, wave[0], dwave, fullfield, "ivar")
+    head_new_flux = format_preprocess_output_header(config, hdul[ext_data].header, cal_data.shape, wcs, wave[0], dwave, fullfield, "flux")
+    head_new_ivar = format_preprocess_output_header(config, hdul[ext_data].header, cal_data.shape, wcs, wave[0], dwave, fullfield, "ivar")
     fname_cal = write_preprocessed_cube(fname, hdul, cal_data, cal_ivar, head_new_flux, head_new_ivar)
     return fname_cal
-
-def galaxy_mask(galaxy, wcs, shape):
-    reff = galaxy.config["galaxy"]["reff"] * units.arcsec
-    ba = 1 - galaxy.config["galaxy"]["ell"]
-    pa = galaxy.config["galaxy"]["pa"] * units.deg
-    aper = aperture.SkyEllipticalAperture(galaxy.c, 2 * reff, 2 * ba * reff, theta = pa)
-    aper_px = aper.to_pixel(wcs.celestial)
-    mask = aper_px.to_mask().to_image(shape)
-    return mask
 
 def smooth_cube_spectral(data, sig):
     data_smooth = np.zeros(data.shape)
@@ -145,26 +135,6 @@ def smooth_cube_spectral(data, sig):
             spec = data_smooth[:, i, j]
             data_smooth[:, i, j] = convolution.convolve_fft(spec, gauss_kernel)
     return data_smooth
-
-def bkg_sub(galaxy, data, wave, wcs):
-    if galaxy.config["pipeline"]["bkgsub_galmask"]:
-        mask = galaxy_mask(galaxy, wcs, data.shape[1:])
-    else:
-        mask = np.zeros(data.shape[1:])
-    line_mask = utils.eline_mask(wave, galaxy.z)
-    bkg_cube = np.zeros(data.shape)
-    for ch in range(data.shape[0]):
-        sigma_clip = stats.SigmaClip(sigma = 3.0)
-        bkg_estimator = background.MedianBackground()
-        bkg = background.Background2D(data[ch, :, :], (10, 10), filter_size = (5, 5), mask = mask.astype(bool),
-                            sigma_clip = sigma_clip, bkg_estimator = bkg_estimator)
-        if line_mask[ch]:
-            bkg_cube[ch, :, :] = bkg.background
-        else:
-            bkg_cube[ch, :, :] = bkg_cube[ch - 1, :, :]
-    #bkg_cube = smooth_cube_spectral(bkg_cube, 5)
-    data = data - bkg_cube
-    return data
 
 def downsample_wav_axis(wave, data, method, return_wave=False, cov=0):
     new_data = np.zeros((data.shape[0] // 2, data.shape[1], data.shape[2]))
@@ -209,7 +179,7 @@ def stitch_cubes(cube_blue, cube_red, ivar_blue, ivar_red):
     ivar_full = (ivar_blue * ivar_blue + ivar_red * ivar_red) / (ivar_blue + ivar_red)
     return cube_full, ivar_full
 
-def write_fullcube(galaxy, fname_out, fname_blue, fname_red, config, flux, ivar, hdr):
+def write_fullcube(config, fname_out, fname_blue, fname_red, flux, ivar, hdr):
     head = fits.Header()
     head["TELESCOP"] = ("WHT", "4.2m William Herschel Telescope")
     head["DETECTOR"] = ("WEAVELIFU", "WEAVE Large IFU")
@@ -219,7 +189,7 @@ def write_fullcube(galaxy, fname_out, fname_blue, fname_red, config, flux, ivar,
     head["OBJDEC"] = config["galaxy"]["dec"]
     ivar[ivar < 0] = 0
     mask = np.isnan(flux) | np.isnan(ivar)
-    if galaxy.config["pipeline"]["fix_astrometry"]:
+    if config["pipeline"]["fix_astrometry"]:
         hdr = astrometry.find_astrometry_solution(flux, WCS(hdr))
         logger.info("Fixed WCS solution")
     prim_hdu = fits.PrimaryHDU(header=head)
@@ -231,9 +201,6 @@ def write_fullcube(galaxy, fname_out, fname_blue, fname_red, config, flux, ivar,
     fname_flux = fname_out.split(".fits")[0] + "_only-flux.fits"
     hdu_flux = fits.PrimaryHDU(data = flux.astype("float32"), header=hdr)
     hdu_flux.writeto(fname_flux, overwrite = True)
-    if galaxy.config["pipeline"]["hdf5"]:
-        subprocess.run(["fits2idia", fname_flux])
-        logger.info("Converted cube to HDF5")
 
 def fill_holes(data, ivar, N=3, dmax=3):
     #data = cube.unmasked_data[:, :,  :].value.copy()
@@ -257,16 +224,17 @@ def mask_spectral_region(ivar, wav, wavmin, wavmax):
     ivar[mask] = 0
     return ivar
 
-def generate_cube(galaxy, fullfield=False):
-    if galaxy.config["pipeline"]["downsample_spatial"] and (galaxy.config["pipeline"]["factor_spatial"] is None):
+def generate_cube(config, fullfield=False):
+    if config["pipeline"]["downsample_spatial"] and (config["pipeline"]["factor_spatial"] is None):
         raise ValueError("If 'downsample_spatial = True', 'factor' cannot be None")
-    outdir = galaxy.config["files"]["outdir"]
-    fname_blue = galaxy.config["files"]["cube_blue"]
-    fname_red = galaxy.config["files"]["cube_red"]
+    outdir = config["files"]["outdir"]
+    Path(outdir).mkdir(exist_ok=True)
+    fname_blue = config["files"]["cube_blue"]
+    fname_red = config["files"]["cube_red"]
     hdul_blue = fits.open(fname_blue)
     hdul_red = fits.open(fname_red)
-    cal_fname_red = preprocess_cube(galaxy, fname_red, hdul_red, "red")
-    cal_fname_blue = preprocess_cube(galaxy, fname_blue, hdul_blue, "blue")
+    cal_fname_red = preprocess_cube(config, fname_red, hdul_red, "red")
+    cal_fname_blue = preprocess_cube(config, fname_blue, hdul_blue, "blue")
     logger.info("Done preprocessing")
     hdul_blue.close()
     hdul_red.close()
@@ -275,11 +243,11 @@ def generate_cube(galaxy, fullfield=False):
     ivar_blue = SpectralCube.read(cal_fname_blue, hdu = 2)
     ivar_red = SpectralCube.read(cal_fname_red, hdu = 2)
     logger.info("Read flux-calibrated cubes")
-    if galaxy.config["pipeline"]["downsample_spatial"]:
-        cube_blue = downsample_cube_spatial(cube_blue, [1, 2], "flux", factor = galaxy.config["pipeline"]["factor_spatial"])
-        cube_red = downsample_cube_spatial(cube_red, [1, 2], "flux", factor = galaxy.config["pipeline"]["factor_spatial"])
-        ivar_blue = downsample_cube_spatial(ivar_blue, [1, 2], "ivar", factor = galaxy.config["pipeline"]["factor_spatial"])
-        ivar_red = downsample_cube_spatial(ivar_red, [1, 2], "ivar", factor = galaxy.config["pipeline"]["factor_spatial"])
+    if config["pipeline"]["downsample_spatial"]:
+        cube_blue = downsample_cube_spatial(cube_blue, [1, 2], "flux", factor=config["pipeline"]["factor_spatial"])
+        cube_red = downsample_cube_spatial(cube_red, [1, 2], "flux", factor=config["pipeline"]["factor_spatial"])
+        ivar_blue = downsample_cube_spatial(ivar_blue, [1, 2], "ivar", factor=config["pipeline"]["factor_spatial"])
+        ivar_red = downsample_cube_spatial(ivar_red, [1, 2], "ivar", factor=config["pipeline"]["factor_spatial"])
         logger.info("Done spatial binning")
     wavblue = cube_blue.spectral_axis.to(units.AA).value
     min = np.abs(wavblue - 3700).argmin()
@@ -298,16 +266,13 @@ def generate_cube(galaxy, fullfield=False):
     ivar = mask_spectral_region(ivar, wav, 6865, 6882)
     hdr = cube_full.header
     logger.info("Combined red and blue cubes")
-    if galaxy.config["pipeline"]["fill_holes"]:
+    if config["pipeline"]["fill_holes"]:
         data, ivar = fill_holes(data, ivar)
-    if galaxy.config["pipeline"]["downsample_spatial"]:
-        if fullfield:
-            outfile = outdir + "/calibrated_cube_full.fits"
-        else:
-            outfile = outdir + "/calibrated_cube.fits"
-        write_fullcube(galaxy, outfile, fname_blue, fname_red, galaxy.config, data, ivar, hdr)
+    if config["pipeline"]["downsample_spatial"]:
+        outfile = outdir + "/calibrated_cube.fits"
+        write_fullcube(config, outfile, fname_blue, fname_red, data, ivar, hdr)
         logger.info(f"Wrote combined, flux-calibrated cube: {outfile}")
     else:
         outfile = outdir + "/calibrated_cube_p5.fits"
-        write_fullcube(galaxy, outfile, fname_blue, fname_red, galaxy.config, cube, ivar, hdr)
+        write_fullcube(config, outfile, fname_blue, fname_red, cube, ivar, hdr)
         logger.info(f"Wrote combined, flux-calibrated cube: {outfile}")

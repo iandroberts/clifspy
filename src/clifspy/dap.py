@@ -17,6 +17,7 @@ from scipy.interpolate import splev
 import toml
 
 import clifspy.utils
+import clifspy
 
 logger = logging.getLogger("CLIFS_Pipeline")
 
@@ -24,28 +25,15 @@ class WEAVEDataCube(DataCube):
     instrument = 'weave'
     def __init__(self, ifile):
         _ifile = pathlib.Path(ifile).resolve()
-        find_ints = re.findall(r'\d+', ifile)
-        if len(find_ints) == 2 and find_ints[1] == "5":
-            config_path = "/arc/projects/CLIFS/config_files/clifs_{}.toml".format(find_ints[0])
-        elif len(find_ints) > 1:
-            raise ValueError("More than one ID found")
-        else:
-            config_path = "/arc/projects/CLIFS/config_files/clifs_{}.toml".format(find_ints[0])
-        if not _ifile.exists():
-            raise FileNotFoundError(f'File does not exist: {_ifile}')
         # Set the paths
         self.directory_path = _ifile.parent
         self.file_name = _ifile.name
         # Collect the metadata into a dictionary
-        config = toml.load(config_path)
+        config = toml.load(os.environ["CONFIG_PATH"])
         self.meta = {}
         self.meta["z"] = config["galaxy"]["z"]
         self.meta["objra"] = config["galaxy"]["ra"]
         self.meta["objdec"] = config["galaxy"]["dec"]
-        self.meta["pa"] = config["galaxy"]["pa"]
-        self.meta["ell"] = config["galaxy"]["ell"]
-        self.meta["reff"] = config["galaxy"]["reff"]
-        #sres = 2500
         # Open the file and initialize the DataCube base class
         with fits.open(str(_ifile)) as hdu:
             print('Reading WEAVE datacube data ...', end='\r')
@@ -172,23 +160,26 @@ def _move_manga_dap_output_files(config, dap_dir_name = "HYB10-MILESHC-MASTARSSP
         subprocess.run(["gunzip",  "-f", config["files"]["outdir_dap"] + "/weave-calibrated-LOGCUBE-{}.fits.gz".format(dap_dir_name)])
         subprocess.run(["gunzip", "-f", config["files"]["outdir_dap"] + "/weave-calibrated-MAPS-{}.fits.gz".format(dap_dir_name)])
 
-def run_manga_dap(galaxy, decompress=False):
-    cube_path = galaxy.config["files"]["cube_sci"]
-    dap_config_path = galaxy.config["files"]["dap_config"]
-    #dap_config_path = "/arc/projects/CLIFS/config_files/weave_xsl.toml"
-    out_path = galaxy.config["files"]["outdir_dap"]
+def run_manga_dap(config, config_path, decompress=False):
+    cube_path = config["files"]["cube_sci"]
+    dap_config_path = config["files"]["dap_config"]
+    out_path = config["files"]["outdir_dap"]
+    dap_module_path = pathlib.Path(clifspy.__file__).parent / "dap"
+    env = os.environ.copy()
+    env["CONFIG_PATH"] = config_path
     subprocess.run(["manga_dap",
                     "-f",
                     cube_path,
                     "--cube_module",
-                    "/arc/projects/CLIFS/clifspy/src/clifspy/dap",
+                    dap_module_path,
                     "WEAVEDataCube",
                     "--plan_module",
                     "mangadap.config.analysisplan.AnalysisPlan",
                     "-p",
                     dap_config_path,
                     "-o",
-                    out_path])
+                    out_path],
+                    env=env)
     # Move output files back one step in file tree, probably a way to do this via the DAP call..
-    _move_manga_dap_output_files(galaxy.config, dap_dir_name="HYB10-XSLSSP-MASTARSSP",
+    _move_manga_dap_output_files(config, dap_dir_name="HYB10-XSLSSP-MASTARSSP",
         decompress=decompress)
