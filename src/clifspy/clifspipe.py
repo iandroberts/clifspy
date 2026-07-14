@@ -6,8 +6,7 @@ import argparse
 from pathlib import Path
 import toml
 
-from clifspy import (derived_products, cube, galaxy, dap, utils,
-                        multiwav, plotting)
+from clifspy import cube, dap
 
 def setup_logger(args):
     timestr = time.strftime("%Y%m%d-%H%M%S")
@@ -54,7 +53,6 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("wkdir")
     parser.add_argument("config")
-    parser.add_argument("config_dap")
     parser.add_argument("--process_cube", action = "store_true")
     parser.add_argument("--manga_dap", action = "store_true")
     args = parser.parse_args()
